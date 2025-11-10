@@ -10,3 +10,7 @@ scipy
 pandas
 tqdm
 ipykernel
+onnx
+pydot
+jupyter 
+ipywidgets
