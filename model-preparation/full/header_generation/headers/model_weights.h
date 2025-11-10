@@ -8,7 +8,7 @@ namespace smolvla {
     using size_t = std::size_t; // Standard size type (for shape)
     
     using float32_t = float;    // 32-bit floating point
-    using bfloat16_t = float32; // 16-bit bfloat16 floating point
+    using bfloat16_t = float;   // 16-bit bfloat16 floating point (TODO: implement proper bfloat16 type)
     
     // === Model Dimension Constants ===
     constexpr size_t PATCH_EMBED_DIM_SMALL = 3;
