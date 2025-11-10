@@ -214,3 +214,5 @@ __marimo__/
 .*
 
 !.gitignore
+WEIGHTS_*.cpp
+*.npy
