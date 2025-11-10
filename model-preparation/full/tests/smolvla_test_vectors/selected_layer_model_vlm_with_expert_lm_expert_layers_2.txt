@@ -14,7 +14,7 @@
 │   |   ├─ children: ['weight']
 │   │   └──── weight: torch.Size([2048, 720]) [torch.bfloat16]
 │   └───┬ up_proj:
-│       ├─ in: model.vlm_with_expert.lm_expert.layers.2.mlp.up_proj
+│        ├─ in: model.vlm_with_expert.lm_expert.layers.2.mlp.up_proj
 │       ├─ children: ['weight']
 │       └──── weight: torch.Size([2048, 720]) [torch.bfloat16]
 ├───┬ post_attention_layernorm
@@ -22,7 +22,7 @@
 |   ├─ children: ['weight']
 │   └──── weight: torch.Size([720]) [torch.bfloat16]
 └───┬ self_attn:
-    ├─ in: model.vlm_with_expert.lm_expert.layers.2.self_attn
+     ├─ in: model.vlm_with_expert.lm_expert.layers.2.self_attn
     ├─ children: ['k_proj', 'o_proj', 'q_proj', 'v_proj']
     ├───┬ k_proj
     |   ├─ in: model.vlm_with_expert.lm_expert.layers.2.self_attn.k_proj
@@ -37,6 +37,6 @@
     |   ├─ children: ['weight']
     │   └──── weight: torch.Size([960, 720]) [torch.bfloat16]
     └───┬ v_proj:
-        ├─ in: model.vlm_with_expert.lm_expert.layers.2.self_attn.v_proj
+         ├─ in: model.vlm_with_expert.lm_expert.layers.2.self_attn.v_proj
         ├─ children: ['weight']
         └──── weight: torch.Size([320, 720]) [torch.bfloat16]

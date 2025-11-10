@@ -17,12 +17,12 @@
 │   │   ├──── bias: torch.Size([3072]) [torch.bfloat16]
 │   │   └──── weight: torch.Size([3072, 768]) [torch.bfloat16]
 │   └───┬ fc2:
-│       ├─ in: model.vlm_with_expert.vlm.model.vision_model.encoder.layers.6.mlp.fc2
+│        ├─ in: model.vlm_with_expert.vlm.model.vision_model.encoder.layers.6.mlp.fc2
 │       ├─ children: ['bias', 'weight']
 │       ├──── bias: torch.Size([768]) [torch.bfloat16]
 │       └──── weight: torch.Size([768, 3072]) [torch.bfloat16]
 └───┬ self_attn:
-    ├─ in: model.vlm_with_expert.vlm.model.vision_model.encoder.layers.6.self_attn
+     ├─ in: model.vlm_with_expert.vlm.model.vision_model.encoder.layers.6.self_attn
     ├─ children: ['k_proj', 'out_proj', 'q_proj', 'v_proj']
     ├───┬ k_proj
     |   ├─ in: model.vlm_with_expert.vlm.model.vision_model.encoder.layers.6.self_attn.k_proj
@@ -40,7 +40,7 @@
     │   ├──── bias: torch.Size([768]) [torch.bfloat16]
     │   └──── weight: torch.Size([768, 768]) [torch.bfloat16]
     └───┬ v_proj:
-        ├─ in: model.vlm_with_expert.vlm.model.vision_model.encoder.layers.6.self_attn.v_proj
+         ├─ in: model.vlm_with_expert.vlm.model.vision_model.encoder.layers.6.self_attn.v_proj
         ├─ children: ['bias', 'weight']
         ├──── bias: torch.Size([768]) [torch.bfloat16]
         └──── weight: torch.Size([768, 768]) [torch.bfloat16]
