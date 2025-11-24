@@ -24,12 +24,10 @@ def add_bias[M, H](X: float32[M, H], b: float32[H]) -> float32[M, H]:
 def gelu_approx[M, H](X: float32[M, H]) -> float32[M, H]:
     """Approximate GELU using tanh formulation (template over M,H)."""
     Y: float32[M, H] = 0
-    a = 0.7978845608028654
     for i, j in allo.grid(M, H):
         x = X[i, j]
-        x3 = x * x * x
-        t = a * (x + 0.044715 * x3)
-        y = 0.5 * x * (1.0 + allo.tanh(t))
+        # Direct inline computation to match MLIR generation
+        y = 0.5 * x * (1.0 + allo.tanh(0.7978845608028654 * (x + 0.044715 * x * x * x)))
         Y[i, j] = y
     return Y
 
