@@ -23,12 +23,12 @@ def schedule_baseline_randomized_softmax(
     D --> dimension of action chunk
     """
     type_str = str(str(N_T).split(".")[-1])[:-2]
-    L = CAC.LENGTH_OF_ACTION_CHUNK
-    D = CAC.HEAD_DIM
-    A = np.random.randn(L, D).astype(N_T)
-    s = allo.customize(softmax.softmax_baseline, instantiate=[A_T, L, D])
+    L_A = CAC.LENGTH_OF_ACTION_CHUNK
+    L_V = CAC.DEFAULT_Tf
+    A = np.random.randn(L_A, L_V).astype(N_T)
+    s = allo.customize(softmax.softmax_baseline, instantiate=[A_T, L_A, L_V])
 
-    name = f"softmax_{L}_{D}_{type_str}_{mode}_baseline_{datetime.now().strftime("%Y%m%d_%H%M%S")}.prj"
+    name = f"softmax_{L_A}_{L_V}_{type_str}_{mode}_baseline_{datetime.now().strftime("%Y%m%d_%H%M%S")}.prj"
     if mode == "llvm":
         s_llvm = s.build()
         s_llvm(A)

@@ -76,14 +76,14 @@ def schedule_randomized_baseline_q_projection(
         s_llvm(A, W_q, out_Q)
         return (out_Q, s)
     elif mode == "csyn":
-        s_csyn = s.build(target="vitis_hls", mode="csyn", project=f"q_projection_{L_A}_{D_A}_{D_Q}_{type_str}_{mode}_baseline_{datetime.now().strftime("%Y%m%d_%H%M%S")}.prj")
+        s_csyn = s.build(target="vitis_hls", mode="csyn", project=f"projection_q_{L_A}_{D_A}_{D_Q}_{type_str}_{mode}_baseline_{datetime.now().strftime("%Y%m%d_%H%M%S")}.prj")
         s_csyn()
     elif mode == "hw_emu":
-        s_hw_emu = s.build(target="vitis_hls", mode="hw_emu", project=f"q_projection_{L_A}_{D_A}_{D_Q}_{type_str}_{mode}_baseline_{datetime.now().strftime("%Y%m%d_%H%M%S")}.prj")
+        s_hw_emu = s.build(target="vitis_hls", mode="hw_emu", project=f"projection_q_{L_A}_{D_A}_{D_Q}_{type_str}_{mode}_baseline_{datetime.now().strftime("%Y%m%d_%H%M%S")}.prj")
     elif mode == "hw":
-        s_hw = s.build(target="vitis_hls", mode="hw", project=f"q_projection_{L_A}_{D_A}_{D_Q}_{type_str}_{mode}_baseline_{datetime.now().strftime("%Y%m%d_%H%M%S")}.prj")
+        s_hw = s.build(target="vitis_hls", mode="hw", project=f"projection_q_{L_A}_{D_A}_{D_Q}_{type_str}_{mode}_baseline_{datetime.now().strftime("%Y%m%d_%H%M%S")}.prj")
     elif mode == "sw_emu":
-        s_sw_emu = s.build(target="vitis_hls", mode="sw_emu", project=f"q_projection_{L_A}_{D_A}_{D_Q}_{type_str}_{mode}_baseline_{datetime.now().strftime("%Y%m%d_%H%M%S")}.prj")
+        s_sw_emu = s.build(target="vitis_hls", mode="sw_emu", project=f"projection_q_{L_A}_{D_A}_{D_Q}_{type_str}_{mode}_baseline_{datetime.now().strftime("%Y%m%d_%H%M%S")}.prj")
     return None, s
 
 def schedule_randomized_baseline_kv_projection(
@@ -140,24 +140,24 @@ def schedule_randomized_baseline_kv_projection(
         s1_llvm(X, W_v, out_V)
         return (out_K, out_V, s0, s1)
     elif mode == "csyn":
-        s0_csyn = s0.build(target="vitis_hls", mode="csyn", project=f"k_projection_{L_V}_{H_D}_{D_K}_{type_str}_{mode}_baseline_{datetime.now().strftime("%Y%m%d_%H%M%S")}.prj")
-        s1_csyn = s1.build(target="vitis_hls", mode="csyn", project=f"v_projection_{L_V}_{H_D}_{D_V}_{type_str}_{mode}_baseline_{datetime.now().strftime("%Y%m%d_%H%M%S")}.prj")
+        s0_csyn = s0.build(target="vitis_hls", mode="csyn", project=f"projection_k_{L_V}_{H_D}_{D_K}_{type_str}_{mode}_baseline_{datetime.now().strftime("%Y%m%d_%H%M%S")}.prj")()
+        s1_csyn = s1.build(target="vitis_hls", mode="csyn", project=f"projection_v_{L_V}_{H_D}_{D_V}_{type_str}_{mode}_baseline_{datetime.now().strftime("%Y%m%d_%H%M%S")}.prj")()
     elif mode == "hw_emu":
-        s0_hw_emu = s0.build(target="vitis_hls", mode="hw_emu", project=f"k_projection_{L_V}_{H_D}_{D_K}_{type_str}_{mode}_baseline_{datetime.now().strftime("%Y%m%d_%H%M%S")}.prj")
-        s1_hw_emu = s1.build(target="vitis_hls", mode="hw_emu", project=f"v_projection_{L_V}_{H_D}_{D_V}_{type_str}_{mode}_baseline_{datetime.now().strftime("%Y%m%d_%H%M%S")}.prj")
+        s0_hw_emu = s0.build(target="vitis_hls", mode="hw_emu", project=f"projection_k_{L_V}_{H_D}_{D_K}_{type_str}_{mode}_baseline_{datetime.now().strftime("%Y%m%d_%H%M%S")}.prj")
+        s1_hw_emu = s1.build(target="vitis_hls", mode="hw_emu", project=f"projection_v_{L_V}_{H_D}_{D_V}_{type_str}_{mode}_baseline_{datetime.now().strftime("%Y%m%d_%H%M%S")}.prj")
     elif mode == "hw":
-        s0_hw = s0.build(target="vitis_hls", mode="hw", project=f"k_projection_{L_V}_{H_D}_{D_K}_{type_str}_{mode}_baseline_{datetime.now().strftime("%Y%m%d_%H%M%S")}.prj")
-        s1_hw = s1.build(target="vitis_hls", mode="hw", project=f"v_projection_{L_V}_{H_D}_{D_V}_{type_str}_{mode}_baseline_{datetime.now().strftime("%Y%m%d_%H%M%S")}.prj")
+        s0_hw = s0.build(target="vitis_hls", mode="hw", project=f"projection_k_{L_V}_{H_D}_{D_K}_{type_str}_{mode}_baseline_{datetime.now().strftime("%Y%m%d_%H%M%S")}.prj")
+        s1_hw = s1.build(target="vitis_hls", mode="hw", project=f"projection_v_{L_V}_{H_D}_{D_V}_{type_str}_{mode}_baseline_{datetime.now().strftime("%Y%m%d_%H%M%S")}.prj")
     elif mode == "sw_emu":
-        s0_sw_emu = s0.build(target="vitis_hls", mode="sw_emu", project=f"k_projection_{L_V}_{H_D}_{D_K}_{type_str}_{mode}_baseline_{datetime.now().strftime("%Y%m%d_%H%M%S")}.prj")
-        s1_sw_emu = s1.build(target="vitis_hls", mode="sw_emu", project=f"v_projection_{L_V}_{H_D}_{D_V}_{type_str}_{mode}_baseline_{datetime.now().strftime("%Y%m%d_%H%M%S")}.prj")
+        s0_sw_emu = s0.build(target="vitis_hls", mode="sw_emu", project=f"projection_k_{L_V}_{H_D}_{D_K}_{type_str}_{mode}_baseline_{datetime.now().strftime("%Y%m%d_%H%M%S")}.prj")
+        s1_sw_emu = s1.build(target="vitis_hls", mode="sw_emu", project=f"projection_v_{L_V}_{H_D}_{D_V}_{type_str}_{mode}_baseline_{datetime.now().strftime("%Y%m%d_%H%M%S")}.prj")
     return None, None, s0, s1
 
 
 
 if __name__ == "__main__":
-    out_Q, s_q = schedule_randomized_baseline_q_projection(N_T=np.float32, A_T=float32, mode="llvm")
-    out_K, out_V, s_k, s_v = schedule_randomized_baseline_kv_projection(N_T=np.float32, A_T=float32, mode="llvm")
+    out_Q, s_q = schedule_randomized_baseline_q_projection(N_T=np.float32, A_T=float32, mode="csyn")
+    out_K, out_V, s_k, s_v = schedule_randomized_baseline_kv_projection(N_T=np.float32, A_T=float32, mode="csyn")
     print(f"out_Q: {out_Q}")
     print(f"out_K: {out_K}")
     print(f"out_V: {out_V}")
