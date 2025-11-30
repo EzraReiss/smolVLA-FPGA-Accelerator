@@ -27,3 +27,13 @@ class CrossAttentionConfig:
 
     # convenience (derived, not fixed by weights)
     DEFAULT_Tf            = 64*NUM_CAMERAS*N_OBS_STEPS + TOKENIZER_MAX_LENGTH + STATE_TOKEN_COUNT
+
+
+class VLMAttentionConfig:
+    NUM_HEADS = 12
+    HIDDEN_DIM = 768
+    SINGLE_HEAD_DIM = HIDDEN_DIM // NUM_HEADS
+    NUM_LAYERS = 12
+    NUM_TOKENS = 1024
+
+

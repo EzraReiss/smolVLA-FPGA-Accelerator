@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 
 plt.style.use('seaborn-v0_8-paper')
 plt.rcParams.update({
@@ -42,7 +43,7 @@ CONN_OUT = 960
 
 B = 1
 S = 50 
-S_V = 256
+S_V = 1024 # Updated to 1024 patches
 
 precisions = {
     'FP32': 4,
@@ -56,18 +57,19 @@ def calc_oi_linear(M, K, N, dtype_bytes):
     bytes_xfer = (K*N + M*K + M*N) * dtype_bytes
     return flops / bytes_xfer
 
-metrics = {}
-for p_name, p_bytes in precisions.items():
-    metrics[p_name] = {}
-    metrics[p_name]['Vis_MLP'] = calc_oi_linear(B*S_V, V_D, V_FFN, p_bytes)
-    metrics[p_name]['Vis_PatchEmbed'] = calc_oi_linear(1024, 3*16*16, 768, p_bytes)
-    metrics[p_name]['Txt_MLP'] = calc_oi_linear(B*S, T_D, T_FFN, p_bytes)
-    metrics[p_name]['Txt_Attn_Q'] = calc_oi_linear(B*S, T_D, T_Q_D, p_bytes)
-    metrics[p_name]['Txt_Attn_K'] = calc_oi_linear(B*S, T_D, T_K_D, p_bytes)
-    metrics[p_name]['Connector'] = calc_oi_linear(1, 12288, 960, p_bytes)
+def analyze_kernel(name, M, K, N, p_bytes):
+    flops = 2 * M * K * N
+    mem_weights = K * N * p_bytes
+    mem_io = (M * K + M * N) * p_bytes
+    total_bytes = mem_weights + mem_io
+    oi = flops / total_bytes
+    return {
+        'Kernel': name,
+        'OI': oi
+    }
 
 def plot_roofline_base(ax, title):
-    x = np.logspace(-1, 3, 100)
+    x = np.logspace(-2, 3, 100)
     ceilings = [
         ('FP32/BF16', P_FP32, 'k-'),
         ('INT8', P_INT8, 'b-'),
@@ -83,34 +85,53 @@ def plot_roofline_base(ax, title):
     ax.set_title(title)
     ax.grid(True, which="both", ls="-", alpha=0.5)
 
-def plot_kernels(ax, kernel_names, metrics_dict):
-    markers = {'FP32': 'o', 'BF16': 's', 'INT8': '^', 'INT4': 'D'}
-    colors = {'FP32': 'black', 'BF16': 'orange', 'INT8': 'blue', 'INT4': 'green'}
-    for p_name, vals in metrics_dict.items():
-        if p_name in ['FP32', 'BF16']: peak = P_FP32
-        elif p_name == 'INT8': peak = P_INT8
-        else: peak = P_INT4
-        for k_name in kernel_names:
-            if k_name not in vals: continue
-            oi = vals[k_name]
-            perf = min(peak, BW_REAL * oi)
-            ax.plot(oi, perf, marker=markers[p_name], color=colors[p_name], markersize=10)
-            if p_name == 'INT4':
-                ax.text(oi, perf*1.3, k_name, fontsize=8, ha='center', rotation=45)
+def plot_kernels_improved(ax, metrics_list, peak_perf):
+    for i, item in enumerate(metrics_list):
+        oi = item['OI']
+        perf = min(peak_perf, BW_REAL * oi)
+        
+        ax.plot(oi, perf, 'b^', markersize=12)
+        
+        # Alternating offset to avoid overlap
+        offset = 1.4 if i % 2 == 0 else 0.6
+        va = 'bottom' if offset > 1 else 'top'
+        
+        ax.text(oi, perf * offset, item['Kernel'], fontsize=9, ha='center', va=va)
 
-# Vision Plot
-fig, ax = plt.subplots(figsize=(10, 7))
-plot_roofline_base(ax, 'Vision Encoder Roofline')
-plot_kernels(ax, ['Vis_MLP', 'Vis_PatchEmbed', 'Connector'], metrics)
+# --- Vision Encoder ---
+p_bytes = precisions['INT8']
+vision_kernels = []
+vision_kernels.append(analyze_kernel('PatchEmbed', S_V, 3*16*16, V_D, p_bytes))
+vision_kernels.append(analyze_kernel('Attn_Q', S_V, V_D, V_D, p_bytes))
+vision_kernels.append(analyze_kernel('Attn_K', S_V, V_D, V_D, p_bytes))
+vision_kernels.append(analyze_kernel('Attn_V', S_V, V_D, V_D, p_bytes))
+vision_kernels.append(analyze_kernel('Attn_Out', S_V, V_D, V_D, p_bytes))
+vision_kernels.append(analyze_kernel('MLP_FC1', S_V, V_D, V_FFN, p_bytes))
+vision_kernels.append(analyze_kernel('MLP_FC2', S_V, V_FFN, V_D, p_bytes))
+vision_kernels.append(analyze_kernel('Connector', 1, 12288, 960, p_bytes))
+
+fig, ax = plt.subplots(figsize=(12, 8))
+plot_roofline_base(ax, 'Vision Encoder Roofline (INT8)')
+plot_kernels_improved(ax, vision_kernels, P_INT8)
 ax.legend()
 plt.tight_layout()
 plt.savefig('vision_roofline.png')
 print("Saved vision_roofline.png")
 
-# Text Plot
-fig, ax = plt.subplots(figsize=(10, 7))
-plot_roofline_base(ax, 'Text Encoder Roofline')
-plot_kernels(ax, ['Txt_MLP', 'Txt_Attn_Q', 'Txt_Attn_K'], metrics)
+# --- Text Encoder ---
+text_kernels = []
+text_kernels.append(analyze_kernel('Attn_Q', S, T_D, T_Q_D, p_bytes))
+text_kernels.append(analyze_kernel('Attn_K', S, T_D, T_K_D, p_bytes))
+text_kernels.append(analyze_kernel('Attn_V', S, T_D, T_V_D, p_bytes))
+text_kernels.append(analyze_kernel('Attn_Out', S, T_D, T_OUT_D, p_bytes))
+text_kernels.append(analyze_kernel('MLP_Gate', S, T_D, T_FFN, p_bytes))
+text_kernels.append(analyze_kernel('MLP_Up', S, T_D, T_FFN, p_bytes))
+text_kernels.append(analyze_kernel('MLP_Down', S, T_FFN, T_D, p_bytes))
+text_kernels.append(analyze_kernel('LM_Head', 1, T_D, 49280, p_bytes))
+
+fig, ax = plt.subplots(figsize=(12, 8))
+plot_roofline_base(ax, 'Text Encoder Roofline (INT8)')
+plot_kernels_improved(ax, text_kernels, P_INT8)
 ax.legend()
 plt.tight_layout()
 plt.savefig('text_roofline.png')

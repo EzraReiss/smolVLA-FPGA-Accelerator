@@ -98,7 +98,7 @@ def run_kernel_with_timing():
 
     mod = s.build(
     target="vitis_hls",
-    mode="hw",
+    mode="sw_emu",
     project="cross_attention_test.prj",
     configs={
         "device": "u280",    
