@@ -11,7 +11,7 @@ from attention.config import VLMAttentionConfig as VAC
 
 # Test configuration
 L = 1024  # Sequence length
-L = 128 #Temp smaller L to make compile faster
+# L = 128 #Temp smaller L to make compile faster
 D_h = 64  # Head dimension
 
 # Test data

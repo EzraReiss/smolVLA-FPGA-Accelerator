@@ -159,7 +159,8 @@ def sdpa_streaming[
     """
     # Row buffers - use float32 for softmax (exp/div require floating point)
     attn_row: "float32[L]"      # One row of attention scores (after Q @ K^T)
-    softmax_row: "float32[L]"   # One row after softmax
+    softmax_row: "float32[L]"   # One row after softmax (float, before scaling)
+    softmax_row_int: "int16[L]" # Scaled softmax row for integer accumulation
     max_val: "float32"         # Max value for numerical stability
     
     # Process one output row at a time
@@ -193,18 +194,32 @@ def sdpa_streaming[
             sum_exp += exp_val
             softmax_row[j2] = exp_val
         
-        # Normalize
+        # Normalize and scale to fixed-point for int32 accumulation
+        # Scale factor: 2^15 = 32768 (fits in int16, allows int32 accumulation without overflow)
+        # Max accumulator value: 128 * 32768 * 127 ≈ 533M (fits in int32)
+        softmax_scale: "float32" = 32768.0
         for j3 in allo.grid(L, name="norm_j"):
-            softmax_row[j3] = softmax_row[j3] / sum_exp
-        # ===== Stage 2: Compute output row i =====
-        acc_out: "int32[D_h]" = 0.0
+            norm_val: "float32" = softmax_row[j3] / sum_exp
+            # Scale to fixed-point int16
+            softmax_row_scaled: "int16" = norm_val * softmax_scale
+            softmax_row_int[j3] = softmax_row_scaled
+            
+        # ===== Stage 2: Compute output row i with integer arithmetic =====
+        # acc_out[d] = sum_j(softmax_row_int[j] * V[j,d]) 
+        # Result is scaled by softmax_scale, will rescale at output
+        acc_out: "int32[D_h]" = 0
         
         for j4 in allo.grid(L, name="out_j"):
+            s_val: "int32" = softmax_row_int[j4]
             for d in allo.grid(D_h, name="out_d"):
-                acc_out[d] += softmax_row[j4] * V[j4, d]
+                v_val: "int32" = V[j4, d]
+                acc_out[d] += s_val * v_val
         
-        # Write outputs (separate loop to keep inner loops perfectly nested)
+        # Write outputs - rescale from fixed-point back to int8
+        # Divide by softmax_scale (32768) to get back to original scale
         for d2 in allo.grid(D_h, name="out_write"):
-            out_val: T = acc_out[d2]
+            # Shift right by 15 bits = divide by 32768
+            rescaled: "int32" = acc_out[d2] >> 15
+            out_val: T = rescaled
             out[i, d2] = out_val
 
