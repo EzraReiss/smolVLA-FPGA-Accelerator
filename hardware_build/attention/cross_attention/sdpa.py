@@ -160,6 +160,7 @@ def sdpa_streaming[
     # Row buffers - use float32 for softmax (exp/div require floating point)
     attn_row: "float32[L]"      # One row of attention scores (after Q @ K^T)
     softmax_row: "float32[L]"   # One row after softmax
+    max_val: "float32"         # Max value for numerical stability
     
     # Process one output row at a time
     for i in allo.grid(L, name="row_loop"):
@@ -175,34 +176,35 @@ def sdpa_streaming[
                 acc += q_val * k_val
             # Convert to float32 and scale
             acc_float: "float32" = acc
-            attn_row[j1] = acc_float / scale
-        
-        # ===== Stage 2: Softmax on attn_row =====
-        # Find max for numerical stability
-        max_val: "float32" = attn_row[0]
-        for j2 in allo.grid(L, name="max_j"):
-            if attn_row[j2] > max_val:
-                max_val = attn_row[j2]
+            acc_float = acc_float / scale
+            #Find max val here to save a loop later
+            if j1 == 0:
+                max_val = acc_float
+            else:                
+                if acc_float > max_val:
+                    max_val = acc_float
+            attn_row[j1] = acc_float
         
         # Compute exp and sum
+        # Store exp values first, then accumulate (helps with II)
         sum_exp: "float32" = 0.0
-        for j3 in allo.grid(L, name="exp_j"):
-            exp_val: "float32" = allo.exp(attn_row[j3] - max_val)
-            softmax_row[j3] = exp_val
+        for j2 in allo.grid(L, name="exp_j"):
+            exp_val: "float32" = allo.exp(attn_row[j2] - max_val)
             sum_exp += exp_val
+            softmax_row[j2] = exp_val
         
         # Normalize
-        for j4 in allo.grid(L, name="norm_j"):
-            softmax_row[j4] = softmax_row[j4] / sum_exp
+        for j3 in allo.grid(L, name="norm_j"):
+            softmax_row[j3] = softmax_row[j3] / sum_exp
         
         # ===== Stage 3: Compute row i of output = softmax_row @ V =====
         # out[i,d] = sum_j5 softmax_row[j5] * V[j5,d]
         for d in allo.grid(D_h, name="out_d"):
             # Use float32 accumulator for mixed precision
             acc2: "float32" = 0.0
-            for j5 in allo.grid(L, name="out_j"):
-                v_val: "float32" = V[j5, d]
-                acc2 += softmax_row[j5] * v_val
+            for j4 in allo.grid(L, name="out_j"):
+                v_val: "T" = V[j4, d]
+                acc2 += softmax_row[j4] * v_val
             # Quantize back to output type T
             out_val: T = acc2
             out[i, d] = out_val
