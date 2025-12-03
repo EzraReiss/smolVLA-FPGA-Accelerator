@@ -461,9 +461,179 @@ def schedule_sdpa_streaming_4row_parallel(
             s_csyn()
 
 
+def schedule_self_attention_4row_parallel(
+    N_T: np.dtype,
+    A_T: allo.ir.types,
+    P: int = 8,  # Row parallelism factor (8 to hide fadd latency ~7)
+    mode: str = "csyn"
+):
+    """
+    4-row parallel schedule for the `self_attention` kernel.
+
+    This is a copy of the SDPA 4-row parallel scheduler adapted to
+    the `self_attention` implementation. It applies the same partitioning,
+    pipelining and dataflow pragmas but customizes `sdpa.self_attention`.
+    """
+    s = allo.customize(sdpa.self_attention, instantiate=[A_T, L, D_h, P])
+    
+    loops = s.get_loops()
+    outer_loop = loops["row_outer"]    
+    s.dataflow(outer_loop["i_outer"])  # Dataflow over outer row batches
+    s.unroll(outer_loop["i_outer"], factor=2)
+    # Pipeline the inner loops (same pattern as sdpa_streaming)
+    # ===== Stage 0: Pipeline & Partition QKV projection =====
+    # Apply targeted pipelining to the inner k-loops of the manual
+    # Q/K/V projection (q_k, k_k, v_k). Also partition the computed
+    # Q/K/V and the weight matrices on the D_h dimension for parallel
+    # access inside the projection and downstream matmuls.
+    
+    # Pipeline the innermost k-loops of Q/K/V projections
+    # loops.q_i contains nested loops: i, j, k (the innermost is 'k')
+    s.pipeline(loops.q_i.k)
+    s.pipeline(loops.k_i.k)
+    s.pipeline(loops.v_i.k)
+
+       
+    # ===== Stage 1: Matmul Q @ K^T =====
+    # Pipeline j1 (inner loop over L columns)
+    loops = s.get_loops()
+    outer_loop = loops["row_outer"]
+
+    s.pipeline(outer_loop["j1"])  # Pipeline inner tiled loop
+    s.partition(s.acc_out, partition.Complete, dim=1)  
+    # Partition the internally computed Q/K/V for parallel access
+    s.partition(s.Q, partition.Complete, dim=2)
+    s.partition(s.max_vals, partition.Complete, dim=1)
+    
+    # ===== Stage 2: Exp and sum =====
+    # Each row has its own sum_exp accumulator, so no cross-row dependency
+    s.pipeline(outer_loop["p2"])
+    
+    # ===== Stage 3: Normalize =====
+    # Pipeline j3 (inner loop over L elements)
+    s.pipeline(outer_loop["j3"])
+    
+    # ===== Stage 4: Output matmul =====
+    # Pipeline j4 (inner loop over L softmax positions)
+    s.pipeline(outer_loop["j4"])
+    
+    # ===== Stage 5: Write outputs =====
+    # Pipeline d2 (inner loop over D_h)
+    s.pipeline(outer_loop["d2"])
+    
+    dtype_str = "int4" if A_T == int4 else "int8"
+    project_name = f"self_attention_{P}row_parallel_{dtype_str}_{mode}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.prj"
+    match mode:
+        case "llvm":
+            out = np.zeros((L, D_h), dtype=N_T)
+            s_llvm = s.build(project=project_name)
+            Q_quant = np.random.randint(-8, 8, (L, D_h)).astype(N_T)
+            K_quant = np.random.randint(-8, 8, (L, D_h)).astype(N_T)
+            V_quant = np.random.randint(-8, 8, (L, D_h)).astype(N_T)
+            # self_attention expects X, W_q, W_k, W_v, scale, out
+            # Use random quantized inputs for X and random small weights
+            W_q = np.random.randint(-8, 8, (D_h, D_h)).astype(N_T)
+            W_k = np.random.randint(-8, 8, (D_h, D_h)).astype(N_T)
+            W_v = np.random.randint(-8, 8, (D_h, D_h)).astype(N_T)
+            s_llvm(Q_quant, W_q, W_k, W_v, scale, out)
+            return out, s
+        case "csyn":
+            s_csyn = s.build(target="vitis_hls", mode="csyn", project=project_name)
+            s_csyn()
+
+
+def schedule_self_attention_mlp_4row_parallel(
+    N_T: np.dtype,
+    A_T: allo.ir.types,
+    P: int = 8,  # Row parallelism factor (8 to hide fadd latency ~7)
+    D_mlp: int = 3072,  # MLP hidden dimension
+    mode: str = "csyn"
+):
+    """
+    4-row parallel schedule for the `self_attention_and_mlp` kernel.
+
+    Customizes `sdpa.self_attention_and_mlp` which includes:
+    - QKV projection
+    - SDPA computation
+    - Residual connection (attention output + input)
+    - MLP layers (fc1 with ReLU, fc2)
+    """
+    s = allo.customize(sdpa.self_attention_and_mlp, instantiate=[A_T, L, D_h, D_mlp, P])
+    
+    loops = s.get_loops()
+    print("All loops:", loops)
+    outer_loop = loops["row_outer"]
+    print("Outer loop keys:", outer_loop)
+    
+    s.dataflow(outer_loop["i_outer"])  # Dataflow over outer row batches
+    s.unroll(outer_loop["i_outer"], factor=2)
+    
+    # ===== Stage 0: Pipeline & Partition QKV projection =====
+    # Pipeline the innermost k-loops of Q/K/V projections
+    s.pipeline(loops.q_i.k)
+    s.pipeline(loops.k_i.k)
+    s.pipeline(loops.v_i.k)
+
+    # ===== Stage 1: Matmul Q @ K^T =====
+    loops = s.get_loops()
+    outer_loop = loops["row_outer"]
+
+    s.pipeline(outer_loop["j1"])  # Pipeline inner loop over L columns
+    s.partition(s.acc_out, partition.Complete, dim=1)  
+    s.partition(s.Q, partition.Complete, dim=2)
+    s.partition(s.max_vals, partition.Complete, dim=1)
+    
+    # ===== Stage 2: Exp and sum =====
+    s.pipeline(outer_loop["p2"])
+    
+    # ===== Stage 3: Normalize =====
+    s.pipeline(outer_loop["j3"])
+    
+    # ===== Stage 4: Output matmul =====
+    s.pipeline(outer_loop["j4"])
+    
+    # ===== Stage 5: Write attention outputs to delta =====
+    s.pipeline(outer_loop["d2"])
+    
+    # ===== Stage 6-7: Residual & MLP fc1 =====
+    # fc1_pm is the outer grid loop, fc1_d is the reduction loop
+    s.pipeline(outer_loop["d4"])  # Pipeline the fc1 reduction loop
+    
+    # ===== Stage 8-9: MLP fc2 =====
+    # fc2_pd is the outer grid loop, fc2_m is the reduction loop  
+    # Partition hidden and W_fc2 for parallel access on reduction dimension
+    s.partition(s.hidden, partition.Cyclic, dim=2, factor=64)
+    s.partition(s.W_fc2, partition.Cyclic, dim=2, factor=64)
+    s.pipeline(outer_loop["m2"])  # Pipeline the fc2 reduction loop
+    s.unroll(outer_loop["m2"], factor=64)  # Unroll for parallelism
+
+
+    
+    dtype_str = "int4" if A_T == int4 else "int8"
+    project_name = f"self_attention_mlp_{P}row_parallel_{dtype_str}_{mode}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.prj"
+    match mode:
+        case "llvm":
+            out = np.zeros((L, D_h), dtype=N_T)
+            s_llvm = s.build(project=project_name)
+            X = np.random.randint(-8, 8, (L, D_h)).astype(N_T)
+            W_q = np.random.randint(-8, 8, (D_h, D_h)).astype(N_T)
+            W_k = np.random.randint(-8, 8, (D_h, D_h)).astype(N_T)
+            W_v = np.random.randint(-8, 8, (D_h, D_h)).astype(N_T)
+            W_fc1 = np.random.randint(-8, 8, (D_mlp, D_h)).astype(N_T)
+            b_fc1 = np.random.randint(-8, 8, D_mlp).astype(N_T)
+            W_fc2 = np.random.randint(-8, 8, (D_h, D_mlp)).astype(N_T)
+            b_fc2 = np.random.randint(-8, 8, D_h).astype(N_T)
+            scale = float(np.sqrt(D_h))
+            s_llvm(X, W_q, W_k, W_v, W_fc1, b_fc1, W_fc2, b_fc2, scale, out)
+            return out, s
+        case "csyn":
+            s_csyn = s.build(target="vitis_hls", mode="csyn", project=project_name)
+            s_csyn()
+
+
 if __name__ == "__main__":
     # Test baseline dataflow
-    print("=== Testing Single-Head SDPA Dataflow Baseline ===")
+    # print("=== Testing Single-Head SDPA Dataflow Baseline ===")
     # schedule_sdpa_no_dataflow(np.float32, float32, mode="csyn")
     
     # Uncomment to test other versions:
@@ -484,15 +654,15 @@ if __name__ == "__main__":
     # schedule_sdpa_streaming_optimized(np.float32, float32, mode="csyn")
     
     # Quantized versions (int4/int8 support)
-    print("\n=== Testing Quantized SDPA int8 Baseline ===")
+    # print("\n=== Testing Quantized SDPA int8 Baseline ===")
     # schedule_sdpa_streaming_quantized_baseline(np.int8, int8, mode="csyn")
     
-    print("\n=== Testing Quantized SDPA int8 Tiled (16x) ===")
+    # print("\n=== Testing Quantized SDPA int8 Tiled (16x) ===")
     # schedule_sdpa_streaming_quantized_tiled(np.int8, int8, tile_factor=16, mode="csyn")
     
     # 4-row parallel version - achieves II=1 on accumulator loops
-    print("\n=== Testing 4-Row Parallel SDPA int8 ===")
-    schedule_sdpa_streaming_4row_parallel(np.int8, int8, P=8, mode="csyn")
+    # print("\n=== Testing 4-Row Parallel SDPA int8 ===")
+    #schedule_sdpa_streaming_4row_parallel(np.int8, int8, P=8, mode="csyn")
     
     # Uncomment to test int4
     # print("\n=== Testing Quantized SDPA int4 Baseline ===")
@@ -500,4 +670,12 @@ if __name__ == "__main__":
     
     # print("\n=== Testing Quantized SDPA int4 Tiled (16x) ===")
     # schedule_sdpa_streaming_quantized_tiled(np.int8, int4, tile_factor=16, mode="csyn")
-
+    
+    # 4-row parallel version for self-attention
+    # print("\n=== Testing 4-Row Parallel Self-Attention int8 ===")
+    # schedule_self_attention_4row_parallel(np.int8, int8, P=8, mode="csyn")
+    
+    # 4-row parallel version for self-attention with MLP
+    print("\n=== Testing 4-Row Parallel Self-Attention+MLP int8 with FC2 Unroll ===")
+    schedule_self_attention_mlp_4row_parallel(np.int8, int8, P=8, D_mlp=3072, mode="csyn")
+    
