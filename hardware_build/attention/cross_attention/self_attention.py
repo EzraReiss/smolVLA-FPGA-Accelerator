@@ -8,6 +8,7 @@ from matrix_multiplies import mm_transpose, mm1, mm_transpose_return, mm1_return
 from attention.cross_attention.softmax import softmax_baseline, softmax_return
 from attention.cross_attention.sdpa import sdpa_streaming_8row as sdpa
 from attention.cross_attention.sdpa_dataflow_scheduler import schedule_sdpa_streaming_4row_parallel as sdpa_schedule
+from allo.customize import Partition as partition
 
 
 
@@ -28,14 +29,6 @@ def self_attention[
 ):
     """
     Self-attention with integrated QKV projection.
-    
-    Computes Q, K, V from input X using projection matrices W_q, W_k, W_v,
-    then applies P-row parallel streaming SDPA.
-    
-    By processing P rows simultaneously with P as the outer loop,
-    we get P independent accumulator chains. With P=8 and fadd latency~7,
-    each accumulator has enough distance between accesses for II=1.
-    
     Structure:
     - QKV Projection: Compute Q=X@W_q, K=X@W_k, V=X@W_v
     - Outer loop: L//P iterations (batch of P rows)
@@ -43,26 +36,21 @@ def self_attention[
     - Inner loops: pipelined computation for each row
     """
     # ===== QKV Projection Stage =====
-    Q: "T[H, L, D_h]"
-    K: "T[H, L, D_h]"
-    V: "T[H, L, D_h]"
-
-    Q2: "T[L, D_h]" = 0
-    K2: "T[L, D_h]" = 0
-    V2: "T[L, D_h]" = 0
-    out2: "T[L, D_h]" = 0
+    Q: "T[H, L, D_h]" = 0
+    K: "T[H, L, D_h]" = 0
+    V: "T[H, L, D_h]" = 0
     
-    # ===== QKV Projection (manual matmul-transpose) =====
-    for h1, i, j in allo.grid(H, L, D_h, name="head_loop"):
-        for k in allo.reduction(D_h, name="prj_dot_product"):
-            Q[h1, i, j] += X[h1, i, k] * W_q[h1, j, k] #standard transpose matmul - TODO: Verify if its supposed to transpose for VLM encoder
-            K[h1, i, j] += X[h1, i, k] * W_k[h1, j, k]
-            V[h1, i, j] += X[h1, i, k] * W_v[h1, j, k]
-
-    for h2 in allo.grid(H, name="head_loop_sdp"):
-        # Apply P-row parallel streaming SDPA for each head
-        sdpa[T, L, D_h, P, "sdpa"](Q[h2], K[h2], V[h2], scale, out[h2])
-        
+    # # ===== QKV Projection (manual matmul-transpose) =====
+    for h1 in allo.grid(H, name="head_loop"):
+        for i in allo.grid(L, name="mm_loop"):
+            for j in allo.grid(D_h, name="mm_loop"):
+                for k in allo.reduction(D_h, name="prj_dot_product"):
+                    Q[h1, i, j] += X[h1, i, k] * W_q[h1, j, k] #standard transpose matmul - TODO: Verify if its supposed to transpose for VLM encoder
+                    K[h1, i, j] += X[h1, i, k] * W_k[h1, j, k]
+                    V[h1, i, j] += X[h1, i, k] * W_v[h1, j, k]
+                    
+            
+        sdpa[T, L, D_h, P, "sdpa"](Q[h1, :, :], K[h1, :, :], V[h1, :, :], scale, out[h1, :, :])
 
 
 def self_attention_2[
@@ -89,7 +77,17 @@ D_h: int16 = 64
 if __name__ == "__main__":
     s1 = allo.customize(self_attention, instantiate=[int8, L, D_h, H, P])
     _, s2 = sdpa_schedule(np.int8, int8, P, mode="llvm")
-    # s1.reorder("k", "j")
-    # s1.buffer_at(s1.C, axis="i")
-    print(s2.module)
+    loop = s1.get_loops("self_attention")
+    # s1.dataflow(loop["head_loop"]["h1"])
+    s1.pipeline(loop["head_loop"]["j"])
+    s1.unroll(loop["head_loop"]["j"], factor=8)
     s1.compose(s2, id="sdpa")
+    W_q = np.random.randint(-128, 127, size=(H, D_h, D_h), dtype=np.int8)
+    W_k = np.random.randint(-128, 127, size=(H, D_h, D_h), dtype=np.int8)
+    W_v = np.random.randint(-128, 127, size=(H, D_h, D_h), dtype=np.int8)
+    W_o = np.random.randint(-128, 127, size=(H, D_h, D_h), dtype=np.int8)
+    X = np.random.randint(-128, 127, size=(H, L, D_h), dtype=np.int8)
+    out = np.zeros((H, L, D_h), dtype=np.int8)
+    scale = np.float32(8.0)
+    s1.build(target="vitis_hls", mode="csyn", project="self_attention_base_dataflow_v3.prj")()
+    

@@ -257,6 +257,8 @@ def sdpa_streaming_8row[
         max_vals: "float32[P]"          # Max value per row
         sum_exps: "float32[P]"          # Sum of exp per row
         acc_out: "int32[P, D_h]"        # Output accumulators for P rows
+        
+        
         # ===== Stage 1: Compute P rows of Q @ K^T =====
         # P is outer, j1 is inner (pipelined)
         for p in allo.grid(P, name="mm_p"):

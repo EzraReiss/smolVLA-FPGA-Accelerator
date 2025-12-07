@@ -425,7 +425,6 @@ def schedule_sdpa_streaming_4row_parallel(
 
     s.pipeline(outer_loop["j1"])  # Pipeline inner tiled loop
     s.partition(s.acc_out, partition.Complete, dim=1)  
-    s.partition(s.Q, partition.Complete, dim=2)
     s.partition(s.max_vals, partition.Complete, dim=1)
     
     # ===== Stage 2: Exp and sum =====
