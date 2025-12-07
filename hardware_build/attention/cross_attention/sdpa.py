@@ -171,6 +171,7 @@ def sdpa_streaming[
         for j1 in allo.grid(L, name="mm_j"):
             # Use int32 accumulator for integer types to prevent overflow
             acc: "int32" = 0
+            
             for k1 in allo.grid(D_h, name="mm_k"):
                 q_val: "int32" = Q[i, k1]
                 k_val: "int32" = K[j1, k1]
@@ -257,7 +258,9 @@ def sdpa_streaming_8row[
         max_vals: "float32[P]"          # Max value per row
         sum_exps: "float32[P]"          # Sum of exp per row
         acc_out: "int32[P, D_h]"        # Output accumulators for P rows
-        
+
+        for p in allo.grid(P, name="init_max"):        
+            max_vals[p] = -1.0 / 0.0
         
         # ===== Stage 1: Compute P rows of Q @ K^T =====
         # P is outer, j1 is inner (pipelined)
@@ -274,11 +277,8 @@ def sdpa_streaming_8row[
                 acc_float: "float32" = acc
                 acc_float = acc_float / scale
                 # Track max for this row
-                if j1 == 0:
+                if acc_float > max_vals[p]:
                     max_vals[p] = acc_float
-                else:
-                    if acc_float > max_vals[p]:
-                        max_vals[p] = acc_float
                 attn_rows[p, j1] = acc_float
         
         # ===== Stage 2: Compute exp and sum for P rows =====
@@ -472,6 +472,8 @@ def self_attention_and_mlp[
         sum_exps: "float32[P]"          # Sum of exp per row
         acc_out: "int32[P, D_h]"        # Output accumulators for P rows
         # ===== Stage 1: Compute P rows of Q @ K^T =====
+        # define max_vals to be -inf
+        
         # P is outer, j1 is inner (pipelined)
         for p in allo.grid(P, name="mm_p"):
             i: "int16" = i_outer * P + p

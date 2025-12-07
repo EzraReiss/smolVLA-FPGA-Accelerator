@@ -58,17 +58,72 @@ def self_attention_2[
     L: int16, # Number of Tokens
     H: int16, # Number of Heads
     D_h: int16, # Head Embedding Length
-    D_o: int16, # Output Embedding Length (H*D_h)
 ](
     X:   "T[H, L, D_h]",
     W_q: "T[H, D_h, D_h]",
     W_k: "T[H, D_h, D_h]",
     W_v: "T[H, D_h, D_h]",
-    W_o: "T[H, D_h, D_h]",
-    scale: "float32",
-    out: "T[L, D_o]"
+    scale: "float32", #takes the value of 8
+    out: "T[H, L, D_h]"
 ):
-    pass
+    # ===== QKV Projection Stage =====
+    
+    # # ===== QKV Projection (manual matmul-transpose) =====
+    for h1 in allo.grid(H, name="head_loop"):
+        Q: "T[L, D_h]" = 0
+        K: "T[L, D_h]" = 0
+        V: "T[L, D_h]" = 0
+
+        for i_precalc in allo.grid(L, name="mm_i_loop"):
+            for j_precalc in allo.grid(D_h, name="mm_j_loop"):
+                for k_precalc in allo.reduction(D_h, name="prj_dot_product"):
+                    Q[i_precalc, j_precalc] += X[h1, i_precalc, k_precalc] * W_q[h1, j_precalc, k_precalc]
+                    K[i_precalc, j_precalc] += X[h1, i_precalc, k_precalc] * W_k[h1, j_precalc, k_precalc]
+                    V[i_precalc, j_precalc] += X[h1, i_precalc, k_precalc] * W_v[h1, j_precalc, k_precalc]
+
+        for i_out in allo.grid(L, name="row_loop"):
+            attn_row: "int32[L]"
+            max_val: "int32" = -2147483648
+            
+            for j_attn in allo.grid(L, name="attn_loop"):
+                acc: "int32" = 0
+                for k_attn in allo.reduction(D_h, name="dot_product"):
+                    acc += Q[i_out, k_attn] * K[j_attn, k_attn]
+                
+                attn_row[j_attn] = acc
+                
+                if acc > max_val:
+                    max_val = acc
+                    
+            softmax_rows: "T[L]"
+            sum_exps: "T" = 0.0
+            
+            for j_exp in allo.grid(L, name="exp_loop"):
+                exp_pow: "float32" = attn_row[j_exp] - max_val
+                exp_val: "T" = allo.exp(exp_pow / scale)
+                softmax_rows[j_exp] = exp_val
+        
+            softmax_rows_2: "T[L]"
+            for j_exp_sum in allo.grid(L, name="sum_loop"):
+                softmax_row = softmax_rows[j_exp_sum]
+                softmax_rows_2[j_exp_sum] = softmax_row
+                sum_exps += softmax_row
+                    
+            softmax_scaled: "int16[L]"
+            for j_norm in allo.grid(L, name="norm_loop"):
+                norm_val: "float32" = softmax_rows_2[j_norm] / sum_exps
+                softmax_scaled[j_norm] = norm_val * 32768.0
+            
+            acc_out: "int32[D_h]" = 0
+            for j_out in allo.grid(L, name="out_row_loop"):
+                softmax_val: "int32" = softmax_scaled[j_out]
+                
+                for k_out in allo.reduction(D_h, name="out_loop"):   
+                    v_val: "int32" = V[j_out, k_out]
+                    acc_out[k_out] += softmax_val * v_val
+
+            for k_final in allo.grid(D_h, name="final_loop"):
+                out[h1, i_out, k_final] = acc_out[k_final] >> 15
 
 H: int16 = 12
 P: int16 = 8

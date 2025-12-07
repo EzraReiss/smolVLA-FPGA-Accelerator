@@ -515,6 +515,7 @@ def schedule_self_attention_4row_parallel(
     # ===== Stage 4: Output matmul =====
     # Pipeline j4 (inner loop over L softmax positions)
     s.pipeline(outer_loop["j4"])
+    s.unroll(outer_loop["j4"])
     
     # ===== Stage 5: Write outputs =====
     # Pipeline d2 (inner loop over D_h)
