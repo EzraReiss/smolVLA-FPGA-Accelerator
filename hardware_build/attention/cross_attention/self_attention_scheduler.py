@@ -67,45 +67,45 @@ def schedule_self_attention_row_parallelism(
     P_s = 4
     p_2 = 2
 
-    s = allo.customize(sa_2, instantiate=[A_T, L, H, H*D_h, D_h, P, P_s])
+    s = allo.customize(sa_2, instantiate=[
+        A_T,   # Kernel data type
+        L,     # Token Length 
+        H,     # Number of Heads
+        H*D_h, # Embedding Length
+        D_h,   # Head Embedding Length
+        P,     # Parallelism factor - SDPA
+        P_s    # Summation parallelism factor - SDPA
+    ])
+    
     loops = s.get_loops()
     outer_loop = loops["head_loop"]
-    # s.split(outer_loop["j_precalc"], factor=p_2)
-    loops = s.get_loops()
-    outer_loop = loops["head_loop"]
-    s.pipeline(outer_loop["k_precalc"])
-    loops = s.get_loops()
-    outer_loop = loops["head_loop"]
-    print(outer_loop)    
-    s.dataflow(outer_loop["h1"])
-    s.dataflow(outer_loop["i_out"])  # Dataflow over outer row batches
-    # s.unfold("head_loop", [5])  # Unroll inner row batch loop
-    # Pipeline the inner loops (same pattern as sdpa_streaming)
-    # ===== Stage 1: Matmul Q @ K^T =====
-    # Pipeline j1 (inner loop over L columns)
-    loops = s.get_loops()
-    outer_loop = loops["head_loop"]
-    print(outer_loop)
-    s.partition(s.W_q, partition.Cyclic, dim=3, factor=4)
-    s.partition(s.V, partition.Cyclic, dim=3, factor=4)
-    # s.partition(s.sum_exps_p, partition.Complete, dim=0)
-
-    s.pipeline(outer_loop["j_attn"])  # Pipeline inner tiled loop
-    s.pipeline(outer_loop["j_exp_P_s"])
-    s.pipeline(outer_loop["j_norm"])
-    s.pipeline(outer_loop["j_out"])
-    s.pipeline(outer_loop["i_final"])
-    if should_return:
-        return s
+    for pipeline_loop in [
+        "k_precalc",
+        "j_attn",
+        "j_exp_P_s",
+        "j_norm",
+        "j_out",
+        "i_final"
+    ]:
+        s.pipeline(outer_loop[pipeline_loop])
+    
+    for dataflow_loop in ["h1", "i_out"]:
+        s.dataflow(outer_loop[dataflow_loop])    
+    
     dtype_str = {
-        int4: "int4",
-        int8: "int8",
+        int4: "int4", int8: "int8",
         float32: "float32",
         bfloat16: "bfloat16"
     }[A_T]
-    project_name = f"self_attention_rp_{P}_{dtype_str}_{mode}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.prj"
 
-    s.build(target="vitis_hls", mode="csyn", project=project_name)()
+    if should_return:
+        return s
+
+    s.build(
+        target="vitis_hls", 
+        mode="csyn", 
+        project=f"self_attention_rp_{P}_{dtype_str}_{mode}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.prj"
+    )()
 
 def schedule_layer_norm(
     N_T: np.dtype,
@@ -131,7 +131,7 @@ def schedule_full_attention(
     s = allo.customize(self_attention.self_attention_return, instantiate=[A_T, L, H, H*D_h, D_h, P, P_s])
     s1 = schedule_layer_norm(N_T, A_T, mode)
     s2 = schedule_self_attention_row_parallelism(N_T, A_T, mode, should_return=True)
-    # s.dataflow("self_attention_return")
+    s.dataflow("self_attention_return")
     s.compose(s1, id="layer_norm2")
     s.compose(s2, id="sa1")
     dtype_str = {
