@@ -95,15 +95,15 @@ def self_attention_2[
                 if acc > max_val:
                     max_val = acc
                     
-            softmax_rows: "T[L]"
-            sum_exps: "T" = 0.0
+            softmax_rows: "float32[L]"
+            sum_exps: "float32" = 0.0
             
             for j_exp in allo.grid(L, name="exp_loop"):
                 exp_pow: "float32" = attn_row[j_exp] - max_val
-                exp_val: "T" = allo.exp(exp_pow / scale)
+                exp_val: "float32" = allo.exp(exp_pow / scale)
                 softmax_rows[j_exp] = exp_val
         
-            softmax_rows_2: "T[L]"
+            softmax_rows_2: "float32[L]"
             for j_exp_sum in allo.grid(L, name="sum_loop"):
                 softmax_row = softmax_rows[j_exp_sum]
                 softmax_rows_2[j_exp_sum] = softmax_row
@@ -170,23 +170,23 @@ def self_attention_3[
                     if acc > max_val[p_attn]:
                         max_val[p_attn] = acc
                     
-            softmax_rows: "T[P, L]"
-            sum_exps: "T[P]" = 0.0
+            softmax_rows: "float32[P, L]"
+            sum_exps: "float32[P]" = 0.0
             
             for j_exp in allo.grid(L, name="exp_loop"):
                 for p_exp in allo.grid(P, name="p_exp_loop"):
                     exp_pow: "float32" = attn_row[p_exp, j_exp] - max_val[p_exp]
-                    exp_val: "T" = allo.exp(exp_pow / scale)
+                    exp_val: "float32" = allo.exp(exp_pow / scale)
                     softmax_rows[p_exp, j_exp] = exp_val
         
-            softmax_rows_2: "T[P, L]"
+            softmax_rows_2: "float32[P, L]"
             for j_exp_sum in allo.grid(L, name="sum_loop"):
                 for p_sum in allo.grid(P, name="p_sum_loop"):
                     softmax_row = softmax_rows[p_sum, j_exp_sum]
                     softmax_rows_2[p_sum, j_exp_sum] = softmax_row
                     sum_exps[p_sum] += softmax_row
                     
-            softmax_scaled: "int16[P, L]"
+            softmax_scaled: "float32[P, L]"
             for j_norm in allo.grid(L, name="norm_loop"):
                 for p_norm in allo.grid(P, name="p_norm_loop"):
                     norm_val: "float32" = softmax_rows_2[p_norm, j_norm] / sum_exps[p_norm]
