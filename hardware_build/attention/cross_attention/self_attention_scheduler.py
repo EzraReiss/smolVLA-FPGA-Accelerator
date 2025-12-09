@@ -9,6 +9,7 @@ from pathlib import Path
 import sys
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 from attention.config import VLMAttentionConfig as VAC
+import allo.library.systolic as sys
 
 # Test configuration
 L = 1024  # Sequence length
@@ -61,7 +62,8 @@ def schedule_self_attention_row_parallelism(
     A_T: allo.ir.types,
     mode: str = "csyn"
 ):
-    P = 8
+    U = 2
+    P = 8*U
     s = allo.customize(sa_2, instantiate=[A_T, L, H, D_h, P])
     loops = s.get_loops()
     outer_loop = loops["head_loop"]
@@ -93,7 +95,7 @@ def schedule_self_attention_row_parallelism(
         float32: "float32",
         bfloat16: "bfloat16"
     }[A_T]
-    project_name = f"self_attention_rp_{P}_{dtype_str}_{mode}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.prj"
+    project_name = f"self_attention_rp_{U}_{dtype_str}_{mode}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.prj"
     s.build(target="vitis_hls", mode="csyn", project=project_name)()
 
 if __name__ == "__main__":
