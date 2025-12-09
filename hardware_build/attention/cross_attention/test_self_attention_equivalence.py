@@ -1,4 +1,4 @@
-"""Test functional equivalence between self_attention_2 and self_attention_3"""
+"""Test functional equivalence between self_attention_2 and self_attention"""
 import allo
 import numpy as np
 from allo.ir.types import float32, int8, int16, int32
@@ -76,7 +76,7 @@ def self_attention_2[
                 out[h1, i_out, k_final] = acc_out[k_final] >> 15
 
 
-def self_attention_3[
+def self_attention[
     T: (float32, int8),
     L: int16,
     H: int16,
@@ -173,14 +173,14 @@ if __name__ == "__main__":
     s2 = allo.customize(self_attention_2, instantiate=[int8, L_val, H_val, D_h_val])
     mod2 = s2.build(target="llvm")
     
-    print("Building self_attention_3...")
-    s3 = allo.customize(self_attention_3, instantiate=[int8, L_val, H_val, D_h_val, P_val])
+    print("Building self_attention...")
+    s3 = allo.customize(self_attention, instantiate=[int8, L_val, H_val, D_h_val, P_val])
     mod3 = s3.build(target="llvm")
     
     print("Running self_attention_2...")
     mod2(X, W_q, W_k, W_v, scale, out_2)
     
-    print("Running self_attention_3...")
+    print("Running self_attention...")
     mod3(X, W_q, W_k, W_v, scale, out_3)
     
     print("\n===== Results =====")
@@ -189,7 +189,7 @@ if __name__ == "__main__":
     
     # Check if outputs match
     if np.array_equal(out_2, out_3):
-        print("\n✅ SUCCESS: self_attention_2 and self_attention_3 are FUNCTIONALLY EQUIVALENT!")
+        print("\n✅ SUCCESS: self_attention_2 and self_attention are FUNCTIONALLY EQUIVALENT!")
     else:
         print("\n❌ FAILURE: Outputs differ!")
         diff = np.abs(out_2.astype(np.int32) - out_3.astype(np.int32))
