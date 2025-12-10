@@ -301,7 +301,7 @@ def test_mlp_cascaded_systolic():
     
     if RUN_HLS_CSYN and hls.is_available("vitis_hls"):
         print("\n[Running HLS C Synthesis]")
-        proj_name = f"mlp_cascaded_relu_systolic_M{M}_Din{D_in}_H{H}.prj"
+        proj_name = f"mlp_cascaded_relu_systolic_M{M}_Din{D_in}_H{H}_FC1_{Rt1}x{Ct1}_FC2_{Rt2}x{Ct2}.prj"
         modc = df.build(
             top,
             target="vitis_hls",
