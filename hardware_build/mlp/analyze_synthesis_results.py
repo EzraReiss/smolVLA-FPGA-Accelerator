@@ -43,16 +43,29 @@ def extract_resources_from_report(report_path: Path) -> Optional[Dict]:
         }
         
         # Extract latency info from "Latency (cycles)" table
-        # Format: |  2419064904|  2419064906|  8.055 sec|  8.055 sec|
+        # Table format can use seconds or milliseconds for absolute times.
+        # Example row (cycles|min|max|abs_min|abs_max|...):
+        # |  20299415|  20299417|  67.597 ms|  67.597 ms|  19365890|  19365890|  dataflow|
         latency_match = re.search(
-            r'\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*([\d.]+)\s*sec',
+            r"\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*([\d.]+)\s*(ms|sec)\s*\|\s*([\d.]+)\s*(ms|sec)",
             content
         )
         if latency_match:
             resources['latency_cycles_min'] = int(latency_match.group(1))
             resources['latency_cycles_max'] = int(latency_match.group(2))
-            resources['latency_ns_min'] = float(latency_match.group(3)) * 1e9  # Convert sec to ns
-            resources['latency_ns_max'] = float(latency_match.group(3)) * 1e9
+            abs_min_val = float(latency_match.group(3))
+            abs_min_unit = latency_match.group(4)
+            abs_max_val = float(latency_match.group(5))
+            abs_max_unit = latency_match.group(6)
+
+            def to_ns(val, unit):
+                if unit == 'sec':
+                    return val * 1e9
+                # assume 'ms'
+                return val * 1e6
+
+            resources['latency_ns_min'] = to_ns(abs_min_val, abs_min_unit)
+            resources['latency_ns_max'] = to_ns(abs_max_val, abs_max_unit)
         
         # Extract resource usage from "Utilization Estimates" summary table
         # Look for the Total row in the table with BRAM_18K, DSP, FF, LUT, URAM

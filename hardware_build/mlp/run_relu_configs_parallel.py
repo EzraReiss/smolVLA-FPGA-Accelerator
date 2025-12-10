@@ -10,43 +10,69 @@ from multiprocessing import Pool
 import time
 import os
 
-# Configurations to test: (Rt1, Ct1, Rt2, Ct2)
+# Configurations to test.
+# Each entry may be either:
+#  - (Rt, Ct)            -> apply same tile to both FC1 and FC2
+#  - (Rt1, Ct1, Rt2, Ct2)-> specify FC1 and FC2 separately
 CONFIGS = [
-    (1, 1),   # 1x1 systolic tiles
-    (2, 4),   # 2x1 systolic tiles
-    (4, 8),   # 4x2 systolic tiles
+    (1, 1, 1, 1),            # 1x1 systolic tiles (both layers)
+    (1, 3, 4, 3),     
+    (2, 6, 8, 6),            
+       
 ]
 
 SCRIPT_DIR = Path(__file__).parent
 SCRIPT_NAME = "mlp_systolic_cascaded_relu.py"
 SCRIPT_PATH = SCRIPT_DIR / SCRIPT_NAME
 
+process_num = 8
+
 
 def run_config(config):
-    """Run a single configuration."""
-    rt, ct = config
-    config_name = f"{rt}x{ct}"
+    """Run a single configuration.
+
+    Accepts either a 2-tuple `(rt, ct)` meaning use same tile for FC1 and FC2,
+    or a 4-tuple `(rt1, ct1, rt2, ct2)` to specify different tiles per layer.
+    """
+    if len(config) == 2:
+        rt, ct = config
+        rt1, ct1, rt2, ct2 = rt, ct, rt, ct
+        config_name = f"{rt}x{ct}_both"
+    elif len(config) == 4:
+        rt1, ct1, rt2, ct2 = config
+        config_name = f"FC1_{rt1}x{ct1}_FC2_{rt2}x{ct2}"
+    else:
+        raise ValueError("Config must be a 2-tuple or 4-tuple")
     
     print(f"\n{'='*60}")
-    print(f"Starting synthesis: {config_name} (Rt={rt}, Ct={ct})")
+    print(f"[PID {os.getpid()}] Starting synthesis: {config_name} (Rt={rt}, Ct={ct})")
     print(f"{'='*60}")
     
     # Create a temporary Python script with this config
-    temp_script = SCRIPT_DIR / f"mlp_relu_temp_{rt}x{ct}.py"
+    temp_script = SCRIPT_DIR / f"mlp_relu_temp_{config_name}.py"
     
     try:
         # Read the base script
         with open(SCRIPT_PATH, 'r') as f:
             script_content = f.read()
         
-        # Modify the Rt1, Ct1, Rt2, Ct2 values
-        modified_content = script_content.replace(
-            "Rt1, Ct1 = 1, 1",
-            f"Rt1, Ct1 = {rt}, {ct}"
-        ).replace(
-            "Rt2, Ct2 = 1, 1",
-            f"Rt2, Ct2 = {rt}, {ct}"
-        )
+        # Modify the Rt/Ct values depending on config shape
+        if len(config) == 2:
+            modified_content = script_content.replace(
+                "Rt1, Ct1 = 1, 1",
+                f"Rt1, Ct1 = {rt1}, {ct1}"
+            ).replace(
+                "Rt2, Ct2 = 1, 1",
+                f"Rt2, Ct2 = {rt2}, {ct2}"
+            )
+        else:
+            modified_content = script_content.replace(
+                "Rt1, Ct1 = 1, 1",
+                f"Rt1, Ct1 = {rt1}, {ct1}"
+            ).replace(
+                "Rt2, Ct2 = 1, 1",
+                f"Rt2, Ct2 = {rt2}, {ct2}"
+            )
         
         # Write the temporary script
         with open(temp_script, 'w') as f:
@@ -57,7 +83,7 @@ def run_config(config):
         result = subprocess.run(
             [sys.executable, str(temp_script)],
             cwd=SCRIPT_DIR,
-            capture_output=False,  # Show output in real-time
+            capture_output=True,  # Capture output to avoid interleaving
             text=True,
             timeout=3600  # 1 hour timeout per config
         )
@@ -69,12 +95,17 @@ def run_config(config):
         
         if result.returncode == 0:
             print(f"✅ {config_name}: SUCCESS (took {elapsed_time:.1f}s)")
+            print(f"   Process ID: {os.getpid()}")
             return {
                 'config': config_name,
                 'status': 'SUCCESS',
                 'time': elapsed_time,
-                'rt': rt,
-                'ct': ct
+                'rt1': rt1,
+                'ct1': ct1,
+                'rt2': rt2,
+                'ct2': ct2,
+                'stdout': result.stdout,
+                'stderr': result.stderr
             }
         else:
             print(f"❌ {config_name}: FAILED (took {elapsed_time:.1f}s)")
@@ -82,8 +113,12 @@ def run_config(config):
                 'config': config_name,
                 'status': 'FAILED',
                 'time': elapsed_time,
-                'rt': rt,
-                'ct': ct
+                'rt1': rt1,
+                'ct1': ct1,
+                'rt2': rt2,
+                'ct2': ct2,
+                'stdout': result.stdout,
+                'stderr': result.stderr
             }
     
     except subprocess.TimeoutExpired:
@@ -125,17 +160,22 @@ def main():
     
     print(f"\nConfigurations to run:")
     for i, config in enumerate(CONFIGS, 1):
-        rt, ct = config
-        print(f"  {i}. {rt}x{ct} (Rt={rt}, Ct={ct})")
+        if len(config) == 2:
+            rt, ct = config
+            print(f"  {i}. {rt}x{ct} (Rt={rt}, Ct={ct}) - both layers")
+        else:
+            rt1, ct1, rt2, ct2 = config
+            print(f"  {i}. FC1={rt1}x{ct1} | FC2={rt2}x{ct2}")
     
     print(f"\n{'='*60}")
     print("Starting parallel synthesis runs...")
+    print(f"Running {process_num} processes in parallel")
     print(f"{'='*60}\n")
     
     start_time = time.time()
     
     # Run configs in parallel
-    with Pool(processes=min(4, os.cpu_count())) as pool:
+    with Pool(processes=process_num) as pool:
         results = pool.map(run_config, CONFIGS)
     
     total_time = time.time() - start_time
@@ -154,8 +194,10 @@ def main():
         config = result['config']
         status = result['status']
         time_taken = result.get('time', 0)
-        rt = result.get('rt', '?')
-        ct = result.get('ct', '?')
+        rt1 = result.get('rt1', '?')
+        ct1 = result.get('ct1', '?')
+        rt2 = result.get('rt2', '?')
+        ct2 = result.get('ct2', '?')
         
         # Find project folder
         proj_pattern = f"mlp_cascaded_relu_systolic_M1024_Din768_H3072"
@@ -163,17 +205,18 @@ def main():
         proj_folder = f"{proj_pattern}.prj" if proj_folders else "N/A"
         
         if status == 'SUCCESS':
-            print(f"✅ {config:8s} : SUCCESS ({time_taken:.1f}s)")
+            print(f"✅ {config:30s} : SUCCESS ({time_taken:.1f}s)")
+            print(f"   FC1: {rt1}x{ct1} | FC2: {rt2}x{ct2}")
             print(f"   Folder: {proj_folder}")
             success_count += 1
         elif status == 'FAILED':
-            print(f"❌ {config:8s} : FAILED ({time_taken:.1f}s)")
+            print(f"❌ {config:30s} : FAILED ({time_taken:.1f}s)")
             failed_count += 1
         elif status == 'TIMEOUT':
-            print(f"⏱️  {config:8s} : TIMEOUT")
+            print(f"⏱️  {config:30s} : TIMEOUT")
             timeout_count += 1
         else:
-            print(f"💥 {config:8s} : ERROR")
+            print(f"💥 {config:30s} : ERROR")
             error_count += 1
     
     print(f"\n{'='*60}")

@@ -17,12 +17,21 @@ H = 3072           # hidden dim
 D_out = 768        # output dim
 
 # Systolic array tile sizes for FC1 (M x D_in) x (D_in x H)
+'''
+FC1 multiplies (M × K) × (K × H) → output M × H with M=1024, H=3072. Choose Rt1 such that M % Rt1 == 0 and Ct1 such that H % Ct1 == 0.
+FC2 multiplies (M × K2) × (K2 × D_out) → output M × D_out with M=1024, D_out=768. Choose Rt2 with M % Rt2 == 0 and Ct2 with D_out % Ct2 == 0.
+1:3
+'''
 Rt1, Ct1 = 1, 1    # FC1: output is M x H
 K1 = D_in
 M1, N1 = M, H
 P0_1, P1_1 = Rt1 + 2, Ct1 + 2
 
+
 # Systolic array tile sizes for FC2 (M x H) x (H x D_out)
+'''
+Matches 4:3 ratio (4:3), divides both dims (1024%4==0, 768%3==0).
+'''
 Rt2, Ct2 = 1, 1     # FC2: output is M x D_out
 K2 = H
 M2, N2 = M, D_out
