@@ -49,11 +49,10 @@ def top():
     fifo_A1: Stream[int8, 4][Rt1, Ct1]
     fifo_B1: Stream[int8, 4][Rt1, Ct1]
     
-    # ===== Intermediate streams (FC1 output -> GELU -> FC2 input) =====
+    # ===== Intermediate streams (FC1 output -> ReLU -> FC2 input) =====
     fc1_to_bias: Stream[int32, 16]
     bias_to_gelu: Stream[float32, 16]
-    gelu_to_quant: Stream[float32, 16]
-    quant_to_fc2: Stream[int8, 16]
+    relu_to_fc2: Stream[int8, 16]
     
     # ===== FC2 Streams =====
     L3_A2: Stream[UInt(Rt2 * 8), 4]
@@ -168,43 +167,33 @@ def top():
                     bias_idx = nt * Ct1 + n
                     bias_to_gelu.put(fp_val + b1[bias_idx])
 
-    # ==================== GELU ACTIVATION ====================
+    # ==================== RELU ACTIVATION ====================
     
     @df.kernel(mapping=[1])
-    def apply_gelu():
+    def apply_relu():
         for i in range(M):
             for j in range(H):
                 x: float32 = bias_to_gelu.get()
-                x_cubed: float32 = x * x * x
-                inner: float32 = 0.7978845608028654 * (x + 0.044715 * x_cubed)
-                tanh_val: float32 = dsl.tanh(inner)
-                result: float32 = 0.5 * x * (1.0 + tanh_val)
-                gelu_to_quant.put(result)
-    
-    @df.kernel(mapping=[1])
-    def quantize():
-        for i in range(M):
-            for j in range(H):
-                fp_val: float32 = gelu_to_quant.get()
-                quant_val: int8 = 0
-                if fp_val > 127.0:
-                    quant_val = 127
-                elif fp_val < -128.0:
-                    quant_val = -128
+                # ReLU: max(0, x) - clamp to int8 range [0, 127] for unsigned or [-128, 127] for signed
+                result: int8 = 0
+                if x > 127.0:
+                    result = 127
+                elif x < 0.0:
+                    result = 0  # ReLU zeros out negative values
                 else:
-                    quant_val = fp_val
-                quant_to_fc2.put(quant_val)
+                    result = x
+                relu_to_fc2.put(result)
 
     # ==================== FC2 SYSTOLIC ARRAY ====================
     
     @df.kernel(mapping=[1])
     def fc2_loadA():
-        # Read quantized values and pack them
+        # Read ReLU-activated values and pack them
         for mt in range(M2 // Rt2):
             for k in range(K2):
                 packed: UInt(Rt2 * 8) = 0
                 for m in range(Rt2):
-                    val: int8 = quant_to_fc2.get()
+                    val: int8 = relu_to_fc2.get()
                     packed[m * 8 : (m + 1) * 8] = val
                 L3_A2.put(packed)
 
@@ -312,7 +301,7 @@ def test_mlp_cascaded_systolic():
     
     if RUN_HLS_CSYN and hls.is_available("vitis_hls"):
         print("\n[Running HLS C Synthesis]")
-        proj_name = f"mlp_cascaded_systolic_M{M}_Din{D_in}_H{H}.prj"
+        proj_name = f"mlp_cascaded_relu_systolic_M{M}_Din{D_in}_H{H}.prj"
         modc = df.build(
             top,
             target="vitis_hls",
