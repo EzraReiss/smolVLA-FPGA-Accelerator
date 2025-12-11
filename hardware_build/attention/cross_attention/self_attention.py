@@ -37,14 +37,14 @@ def self_attention[
         V: "int32[L, D_h]" 
 
         for i_precalc in allo.grid(L//P, name="mm_i_loop"):
-            for k_precalc in allo.reduction(D, name="prj_dot_product"):
-                for j_precalc in allo.grid(D_h, name="mm_j_loop"):
-                    for p_inner in allo.grid(P, name="p_inner_loop"):
-                        i_precalc_actual: int32 = i_precalc * P + p_inner
-                        X_int32: "int16" = X[i_precalc, k_precalc]
-                        Q[i_precalc_actual, j_precalc] = (0 if k_precalc == 0 else Q[i_precalc_actual, j_precalc]) + X_int32 * W_q[h1, j_precalc, k_precalc]
-                        K[i_precalc_actual, j_precalc] = (0 if k_precalc == 0 else K[i_precalc_actual, j_precalc]) + X_int32 * W_k[h1, j_precalc, k_precalc]
-                        V[i_precalc_actual, j_precalc] = (0 if k_precalc == 0 else V[i_precalc_actual, j_precalc]) + X_int32 * W_v[h1, j_precalc, k_precalc]
+            for p_inner in allo.grid(P, name="p_inner_loop"):
+                i_precalc_actual: int32 = i_precalc * P + p_inner
+                for k_precalc in allo.reduction(D, name="prj_dot_product"):
+                    X_int32: "int16" = X[i_precalc_actual, k_precalc]
+                    for j_precalc in allo.grid(D_h, name="mm_j_loop"):
+                            Q[i_precalc_actual, j_precalc] = (0 if k_precalc == 0 else Q[i_precalc_actual, j_precalc]) + X_int32 * W_q[h1, j_precalc, k_precalc]
+                            K[i_precalc_actual, j_precalc] = (0 if k_precalc == 0 else K[i_precalc_actual, j_precalc]) + X_int32 * W_k[h1, j_precalc, k_precalc]
+                            V[i_precalc_actual, j_precalc] = (0 if k_precalc == 0 else V[i_precalc_actual, j_precalc]) + X_int32 * W_v[h1, j_precalc, k_precalc]
 
         for i_out in allo.grid(L//P, name="row_loop"):
             attn_row: "int32[P, L]"
@@ -165,13 +165,16 @@ def self_attention_return[
     out: "T[L, D]"
     self_attention[T, L, H, D, D_h, P, P_s, "sa1"](X, W_q, W_k, W_v, W_o, scale, out)
     layer_norm[T, L, D, "layer_norm2"](out, gamma,  beta, x_ln)
-        
-        
 
-H: int16 = 12
-P: int16 = 8
-L: int16 = 1024
-D_h: int16 = 64
+
+
 if __name__ == "__main__":
-    pass
-    
+    L = 1024
+    H = 12
+    D = 768
+    D_h = 64
+    P = 1
+    s = allo.customize(self_attention_head_parallel, instantiate=[int8, L, H, D, D_h, P])
+    loop = s.get_loops()
+    s.pipeline(loop["mm_i_loop"]["k_precalc"])
+    s.build(target="vitis_hls", mode="csyn", project="self_attention_head_parallel.prj")()  

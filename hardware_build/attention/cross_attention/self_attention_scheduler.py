@@ -114,7 +114,7 @@ def schedule_layer_norm(
 ):
     s = allo.customize(self_attention.layer_norm, instantiate=[A_T, L, D_h*H])
     loops = s.get_loops()
-    # print(loops)
+    # # print(loops)
     s.pipeline(loops["ln_stats_loop"]["i_stat"])
     s.pipeline(loops["ln_out_outer"]["j_out"])
     s.pipeline(loops["ln_inner_outer"]["j_sum"])
@@ -131,7 +131,7 @@ def schedule_full_attention(
     s = allo.customize(self_attention.self_attention_return, instantiate=[A_T, L, H, H*D_h, D_h, P, P_s])
     s1 = schedule_layer_norm(N_T, A_T, mode)
     s2 = schedule_self_attention_row_parallelism(N_T, A_T, mode, should_return=True)
-    s.dataflow("self_attention_return")
+    # s.dataflow("self_attention_return")
     s.compose(s1, id="layer_norm2")
     s.compose(s2, id="sa1")
     dtype_str = {
@@ -140,7 +140,7 @@ def schedule_full_attention(
         float32: "float32",
         bfloat16: "bfloat16"
     }[A_T]
-    project_name = f"full_self_attention_{P}_{dtype_str}_{mode}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.prj"
+    project_name = f"full_self_attention_base_{P}_{dtype_str}_{mode}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.prj"
     print(s.module)
     mod = s.build(target="vitis_hls", mode="csyn", project=project_name)()
 
