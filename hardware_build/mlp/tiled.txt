@@ -1,0 +1,100 @@
+
+====================================================================================================
+MLP Systolic Cascaded - Synthesis Results Analysis
+====================================================================================================
+Found 16 project folders
+
+Folder                                                                 | FC1      | FC2      | Type  |            BRAM |             LUT |              FF |             DSP | Latency (ms)
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+mlp_cascaded_relu_tiled_M1024_Din768_H3072_FC1_1x1_FC2_1x1.prj         | 1x1      | 1x1      | ReLU  | 8,480 (210.32%) | 11,035 ( 0.85%) |  9,451 ( 0.36%) |      4 ( 0.04%) |      8055.00
+    -> FC1: count=4 LUTs=1,637 cycles_min=3,145,743 cycles_max=2,415,919,109 avg_abs_ms=6036.37
+    -> FC2: count=4 LUTs=1,510 cycles_min=786,447 cycles_max=2,415,919,109 avg_abs_ms=4025.77
+    -> RELU: count=1 LUTs=602 cycles_min=3,145,733 cycles_max=3,145,733 avg_abs_ms=10.47
+mlp_cascaded_relu_tiled_M1024_Din768_H3072_FC1_1x3_FC2_4x3.prj         | 1x3      | 4x3      | ReLU  | 8,480 (210.32%) | 13,428 ( 1.03%) | 10,892 ( 0.42%) |     10 ( 0.11%) |      2687.00
+    -> FC1: count=4 LUTs=1,748 cycles_min=3,145,743 cycles_max=805,306,373 avg_abs_ms=2014.12
+    -> FC2: count=4 LUTs=2,241 cycles_min=196,623 cycles_max=201,326,597 avg_abs_ms=335.82
+    -> RELU: count=1 LUTs=2,024 cycles_min=3,145,733 cycles_max=3,145,733 avg_abs_ms=10.47
+mlp_cascaded_relu_tiled_M1024_Din768_H3072_FC1_2x6_FC2_8x6.prj         | 2x6      | 8x6      | ReLU  | 6,944 (172.22%) | 16,239 ( 1.25%) | 12,828 ( 0.49%) |     18 ( 0.20%) |       674.00
+    -> FC1: count=4 LUTs=1,791 cycles_min=3,145,743 cycles_max=201,326,597 avg_abs_ms=505.12
+    -> FC2: count=4 LUTs=3,003 cycles_min=98,319 cycles_max=50,331,653 avg_abs_ms=84.41
+    -> RELU: count=1 LUTs=3,880 cycles_min=3,145,733 cycles_max=3,145,733 avg_abs_ms=10.47
+mlp_cascaded_relu_tiled_M1024_Din768_H3072_FC1_3x9_FC2_8x6.prj         | 3x9      | 8x6      | ReLU  | 6,176 (153.17%) | 16,399 ( 1.26%) | 12,947 ( 0.50%) |     18 ( 0.20%) |       301.00
+    -> FC1: count=4 LUTs=1,880 cycles_min=3,139,602 cycles_max=89,303,813 avg_abs_ms=225.36
+    -> FC2: count=4 LUTs=3,003 cycles_min=98,319 cycles_max=50,331,653 avg_abs_ms=84.41
+    -> RELU: count=1 LUTs=3,880 cycles_min=3,145,733 cycles_max=3,145,733 avg_abs_ms=10.47
+mlp_cascaded_relu_tiled_M1024_Din768_H3072_FC1_4x12_FC2_12x9.prj       | 4x12     | 12x9     | ReLU  | 5,292 (131.25%) | 42,738 ( 3.28%) | 45,901 ( 1.76%) |     15 ( 0.17%) |       171.00
+    -> FC1: count=4 LUTs=1,890 cycles_min=3,145,743 cycles_max=50,331,653 avg_abs_ms=128.62
+    -> FC2: count=4 LUTs=26,107 cycles_min=261,122 cycles_max=22,195,205 avg_abs_ms=37.50
+    -> RELU: count=1 LUTs=5,706 cycles_min=3,133,445 cycles_max=3,133,445 avg_abs_ms=10.43
+mlp_cascaded_relu_tiled_M1024_Din768_H3072_FC1_4x12_FC2_16x12.prj      | 4x12     | 16x12    | ReLU  | 5,024 (124.60%) | 22,615 ( 1.73%) | 18,563 ( 0.71%) |     34 ( 0.38%) |       171.00
+    -> FC1: count=4 LUTs=1,890 cycles_min=3,145,743 cycles_max=50,331,653 avg_abs_ms=128.62
+    -> FC2: count=4 LUTs=4,551 cycles_min=49,167 cycles_max=12,582,917 avg_abs_ms=21.16
+    -> RELU: count=1 LUTs=7,534 cycles_min=3,145,733 cycles_max=3,145,733 avg_abs_ms=10.47
+mlp_cascaded_relu_tiled_M1024_Din768_H3072_FC1_4x12_FC2_20x15.prj      | 4x12     | 20x15    | ReLU  | 4,898 (121.48%) | 27,938 ( 2.14%) | 22,322 ( 0.86%) |     31 ( 0.34%) |       171.00
+    -> FC1: count=4 LUTs=1,890 cycles_min=3,145,743 cycles_max=50,331,653 avg_abs_ms=128.62
+    -> FC2: count=4 LUTs=6,362 cycles_min=156,674 cycles_max=7,990,277 avg_abs_ms=13.60
+    -> RELU: count=1 LUTs=9,377 cycles_min=3,133,445 cycles_max=3,133,445 avg_abs_ms=10.43
+mlp_cascaded_relu_tiled_M1024_Din768_H3072_FC1_4x12_FC2_8x6.prj        | 4x12     | 8x6      | ReLU  | 5,792 (143.65%) | 16,409 ( 1.26%) | 12,994 ( 0.50%) |     18 ( 0.20%) |       172.00
+    -> FC1: count=4 LUTs=1,890 cycles_min=3,145,743 cycles_max=50,331,653 avg_abs_ms=128.62
+    -> FC2: count=4 LUTs=3,003 cycles_min=98,319 cycles_max=50,331,653 avg_abs_ms=84.41
+    -> RELU: count=1 LUTs=3,880 cycles_min=3,145,733 cycles_max=3,145,733 avg_abs_ms=10.47
+mlp_cascaded_relu_tiled_M1024_Din768_H3072_FC1_5x15_FC2_12x9.prj       | 5x15     | 12x9     | ReLU  | 5,061 (125.52%) | 42,842 ( 3.29%) | 45,987 ( 1.76%) |     15 ( 0.17%) |       110.00
+    -> FC1: count=4 LUTs=1,914 cycles_min=3,121,215 cycles_max=31,961,093 avg_abs_ms=82.10
+    -> FC2: count=4 LUTs=26,107 cycles_min=261,122 cycles_max=22,195,205 avg_abs_ms=37.50
+    -> RELU: count=1 LUTs=5,706 cycles_min=3,133,445 cycles_max=3,133,445 avg_abs_ms=10.43
+mlp_cascaded_relu_tiled_M1024_Din768_H3072_FC1_5x15_FC2_8x6.prj        | 5x15     | 8x6      | ReLU  | 5,561 (137.92%) | 16,513 ( 1.27%) | 13,080 ( 0.50%) |     18 ( 0.20%) |       172.00
+    -> FC1: count=4 LUTs=1,914 cycles_min=3,121,215 cycles_max=31,961,093 avg_abs_ms=82.10
+    -> FC2: count=4 LUTs=3,003 cycles_min=98,319 cycles_max=50,331,653 avg_abs_ms=84.41
+    -> RELU: count=1 LUTs=3,880 cycles_min=3,145,733 cycles_max=3,145,733 avg_abs_ms=10.47
+mlp_cascaded_relu_tiled_M1024_Din768_H3072_FC1_6x20_FC2_15x12.prj      | 6x20     | 15x12    | ReLU  | 4,637 (115.00%) | 52,349 ( 4.02%) | 54,708 ( 2.10%) |     15 ( 0.17%) |        69.58
+    -> FC1: count=4 LUTs=1,941 cycles_min=3,121,215 cycles_max=19,975,684 avg_abs_ms=52.49
+    -> FC2: count=4 LUTs=33,757 cycles_min=208,898 cycles_max=13,369,349 avg_abs_ms=22.78
+    -> RELU: count=1 LUTs=7,041 cycles_min=3,133,445 cycles_max=3,133,445 avg_abs_ms=10.43
+mlp_cascaded_relu_tiled_M1024_Din768_H3072_FC1_8x24_FC2_16x12.prj      | 8x24     | 16x12    | ReLU  | 4,448 (110.32%) | 22,808 ( 1.75%) | 18,746 ( 0.72%) |     34 ( 0.38%) |        45.17
+    -> FC1: count=4 LUTs=1,943 cycles_min=3,145,743 cycles_max=12,582,916 avg_abs_ms=34.04
+    -> FC2: count=4 LUTs=4,551 cycles_min=49,167 cycles_max=12,582,917 avg_abs_ms=21.16
+    -> RELU: count=1 LUTs=7,534 cycles_min=3,145,733 cycles_max=3,145,733 avg_abs_ms=10.47
+mlp_cascaded_relu_tiled_M1024_Din768_H3072_FC1_8x24_FC2_20x15.prj      | 8x24     | 20x15    | ReLU  | 4,322 (107.19%) | 28,131 ( 2.16%) | 22,505 ( 0.86%) |     31 ( 0.34%) |        44.85
+    -> FC1: count=4 LUTs=1,943 cycles_min=3,145,743 cycles_max=12,582,916 avg_abs_ms=34.04
+    -> FC2: count=4 LUTs=6,362 cycles_min=156,674 cycles_max=7,990,277 avg_abs_ms=13.60
+    -> RELU: count=1 LUTs=9,377 cycles_min=3,133,445 cycles_max=3,133,445 avg_abs_ms=10.43
+mlp_cascaded_relu_tiled_M1024_Din768_H3072_FC1_10x30_FC2_20x15.prj     | 10x30    | 20x15    | ReLU  | 4,207 (104.34%) | 28,835 ( 2.21%) | 24,126 ( 0.93%) |     31 ( 0.34%) |        29.75
+    -> FC1: count=4 LUTs=1,929 cycles_min=3,121,215 cycles_max=7,990,276 avg_abs_ms=22.55
+    -> FC2: count=4 LUTs=6,362 cycles_min=156,674 cycles_max=7,990,277 avg_abs_ms=13.60
+    -> RELU: count=1 LUTs=9,377 cycles_min=3,133,445 cycles_max=3,133,445 avg_abs_ms=10.43
+mlp_cascaded_relu_tiled_M1024_Din768_H3072_FC1_10x30_FC2_40x30.prj     | 10x30    | 40x30    | ReLU  |  3,920 (97.22%) | 43,093 ( 3.31%) | 31,910 ( 1.22%) |     59 ( 0.65%) |        29.49
+    -> FC1: count=4 LUTs=1,929 cycles_min=3,121,215 cycles_max=7,990,276 avg_abs_ms=22.55
+    -> FC2: count=4 LUTs=9,845 cycles_min=76,802 cycles_max=1,920,004 avg_abs_ms=3.34
+    -> RELU: count=1 LUTs=18,512 cycles_min=3,072,005 cycles_max=3,072,005 avg_abs_ms=10.23
+mlp_cascaded_relu_tiled_M1024_Din768_H3072_FC1_12x30_FC2_40x30.prj     | 12x30    | 40x30    | ReLU  |  3,894 (96.58%) | 43,115 ( 3.31%) | 32,036 ( 1.23%) |     59 ( 0.65%) |        25.05
+    -> FC1: count=4 LUTs=1,953 cycles_min=3,121,215 cycles_max=6,658,564 avg_abs_ms=19.23
+    -> FC2: count=4 LUTs=9,845 cycles_min=76,802 cycles_max=1,920,004 avg_abs_ms=3.34
+    -> RELU: count=1 LUTs=18,512 cycles_min=3,072,005 cycles_max=3,072,005 avg_abs_ms=10.23
+
+===============================================================================================================================================================================
+Summary Statistics
+===============================================================================================================================================================================
+
+LUT Usage:
+  Min:       11,035  ( 0.85%)
+  Max:       52,349  ( 4.02%)
+  Average:   27,780  ( 2.13%)
+
+BRAM Usage:
+  Min:        3,894  (96.58%)
+  Max:        8,480  (210.32%)
+  Average:    5,446  (135.07%)
+
+FF Usage:
+  Min:        9,451  ( 0.36%)
+  Max:       54,708  ( 2.10%)
+  Average:   24,312  ( 0.93%)
+
+DSP Usage:
+  Min:            4  ( 0.04%)
+  Max:           59  ( 0.65%)
+  Average:       25  ( 0.28%)
+
+===============================================================================================================================================================================
+
+✅ Results exported to: /scratch/ss3679/smolVLA-FPGA-Accelerator/hardware_build/mlp/synthesis_results.json

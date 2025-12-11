@@ -146,6 +146,79 @@ def find_and_analyze_projects():
         if not resources:
             print(f"⚠️  Could not parse report: {prj_folder.name}")
             continue
+
+        # Read report content for per-instance parsing
+        try:
+            with open(report_path, 'r') as f:
+                rpt_text = f.read()
+        except Exception:
+            rpt_text = ''
+
+        # Extract per-module instance latencies (absolute times) and LUTs
+        module_stats = {
+            'fc1': {'count': 0, 'lut': 0, 'cycles_min': [], 'cycles_max': [], 'abs_ms': []},
+            'fc2': {'count': 0, 'lut': 0, 'cycles_min': [], 'cycles_max': [], 'abs_ms': []},
+            'relu': {'count': 0, 'lut': 0, 'cycles_min': [], 'cycles_max': [], 'abs_ms': []},
+        }
+
+        # Latency instance regex (instance | module | cycles_min | cycles_max | abs_min unit | abs_max unit)
+        lat_re = re.compile(r"\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*([\d.]+)\s*(ms|sec)")
+        for m in lat_re.finditer(rpt_text):
+            inst = m.group(1).strip()
+            mod = m.group(2).strip()
+            cmin = int(m.group(3))
+            cmax = int(m.group(4))
+            abs_val = float(m.group(5))
+            unit = m.group(6)
+            abs_ms = abs_val if unit == 'ms' else abs_val * 1000.0
+
+            if 'fc1_gemm' in mod or mod.startswith('fc1_') and 'fc1_load' not in mod and 'fc1_store' not in mod:
+                cat = 'fc1'
+            elif 'fc2_gemm' in mod or mod.startswith('fc2_') and 'fc2_load' not in mod and 'fc2_store' not in mod:
+                cat = 'fc2'
+            elif 'apply_relu' in mod or mod.startswith('apply_relu'):
+                cat = 'relu'
+            else:
+                # also consider store/load latencies belonging to layers
+                if mod.startswith('fc1_'):
+                    cat = 'fc1'
+                elif mod.startswith('fc2_'):
+                    cat = 'fc2'
+                else:
+                    cat = None
+
+            if cat:
+                module_stats[cat]['count'] += 1
+                module_stats[cat]['cycles_min'].append(cmin)
+                module_stats[cat]['cycles_max'].append(cmax)
+                module_stats[cat]['abs_ms'].append(abs_ms)
+
+        # Utilization instance regex to find LUT per instance
+        util_re = re.compile(r"\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*(\d+)\s*\|\s*(?:\d+|\s*-?)\s*\|\s*(\d+)\s*\|\s*(\d+)\s*\|\s*(?:\d+)\s*\|")
+        # groups: instance, module, BRAM, FF, LUT
+        for m in util_re.finditer(rpt_text):
+            inst = m.group(1).strip()
+            mod = m.group(2).strip()
+            try:
+                bram_i = int(m.group(3))
+            except:
+                bram_i = 0
+            try:
+                ff_i = int(m.group(4))
+            except:
+                ff_i = 0
+            try:
+                lut_i = int(m.group(5))
+            except:
+                lut_i = 0
+
+            if mod.startswith('fc1_'):
+                module_stats['fc1']['lut'] += lut_i
+            elif mod.startswith('fc2_'):
+                module_stats['fc2']['lut'] += lut_i
+            elif 'apply_relu' in mod:
+                module_stats['relu']['lut'] += lut_i
+
         
         # Parse config
         config = parse_config_from_folder(prj_folder.name)
@@ -158,6 +231,7 @@ def find_and_analyze_projects():
             'folder': prj_folder.name,
             **config,
             **resources,
+            'module_stats': module_stats,
         }
         results.append(result)
     
@@ -201,6 +275,21 @@ def find_and_analyze_projects():
             latency_ms = f"{result['latency_ns_min']/1e6:.2f}"
         
         print(f"{folder_short:<70} | {fc1_config:<8} | {fc2_config:<8} | {activation_type:<5} | {bram_str:>15} | {lut_str:>15} | {ff_str:>15} | {dsp_str:>15} | {latency_ms:>12}")
+        # Print per-module breakdown (cycles and LUTs)
+        stats = result.get('module_stats', {})
+        if stats:
+            def fmt_cat(cat):
+                s = stats.get(cat, {})
+                if not s or s.get('count', 0) == 0:
+                    return f"{cat.upper()}: N/A"
+                cmin = min(s['cycles_min'])
+                cmax = max(s['cycles_max'])
+                avg_ms = sum(s['abs_ms'])/len(s['abs_ms']) if s['abs_ms'] else 0.0
+                return f"{cat.upper()}: count={s['count']} LUTs={s['lut']:,} cycles_min={cmin:,} cycles_max={cmax:,} avg_abs_ms={avg_ms:.2f}"
+
+            print(f"    -> {fmt_cat('fc1')}")
+            print(f"    -> {fmt_cat('fc2')}")
+            print(f"    -> {fmt_cat('relu')}")
     
     # Print summary
     print(f"\n{'='*175}")

@@ -14,4 +14,3 @@ onnx
 pydot
 jupyter 
 ipywidgets
-sageattention --no-build-isolation
