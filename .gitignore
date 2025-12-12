@@ -220,3 +220,4 @@ WEIGHTS_*.cpp
 .prj/
 *.prj/
 *proj/
+*.zip

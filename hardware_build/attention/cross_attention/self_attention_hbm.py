@@ -1,14 +1,25 @@
+"""
+HBM-backed K/V Projection Kernel for Self-Attention
+
+This kernel computes K and V projections with minimal BRAM usage by:
+1. Processing X in tiles (T_i rows at a time)
+2. Buffering W columns locally for each output column
+3. Streaming results directly to HBM
+
+Uses wrap_io=False to avoid full BRAM buffering of outputs.
+"""
 import allo
 import numpy as np
 from allo.ir.types import float32, bfloat16, int32, int16, int8, int4, int64, Index, bool
 
 
-def compute_kv_to_hbm[
+def compute_kv_to_hbm_fast[
     T: (bfloat16, float32, int4, int8),
-    L: int16,   # Number of Tokens
-    H: int16,   # Number of Heads
-    D: int16,   # Embedding Length
-    D_h: int16, # Head Embedding Length
+    L: int16,     # Total rows (must be divisible by T_i)
+    H: int16,     # Number of Heads
+    D: int16,     # Embedding Length
+    D_h: int16,   # Head Embedding Length
+    T_i: int16,   # Tile size for rows
 ](
     X:     "T[L, D]",
     W_k:   "T[H, D_h, D]",
@@ -17,197 +28,100 @@ def compute_kv_to_hbm[
     V_out: "int32[H, L, D_h]"   # Output to HBM
 ):
     """
-    Compute K and V projections for all heads and write to HBM.
-    
-    This kernel reads X once and computes K/V for all heads in parallel,
-    writing the results to HBM for later use in attention computation.
-    """
-    # Compute K and V for all heads
-    for i in allo.grid(L, name="row_loop"):
-        for k in allo.reduction(D, name="reduction_loop"):
-            X_val: int32 = X[i, k]
-            for j in allo.grid(D_h, name="col_loop"):
-                for h in allo.grid(H, name="head_loop"):
-                    K_out[h, i, j] = (0 if k == 0 else K_out[h, i, j]) + X_val * W_k[h, j, k]
-                    V_out[h, i, j] = (0 if k == 0 else V_out[h, i, j]) + X_val * W_v[h, j, k]
-
-
-def compute_q_row[
-    T: (bfloat16, float32, int4, int8),
-    L: int16,
-    H: int16,
-    D: int16,
-    D_h: int16,
-](
-    X_row:  "T[D]",          # Single row of X (streamed in)
-    W_q:    "T[H, D_h, D]",
-    Q_row:  "int32[H, D_h]"  # Output: Q for this row, all heads
-):
-    """
-    Compute Q projection for a single row of X, all heads.
-    This can be called iteratively to stream Q rows.
-    """
-    for k in allo.reduction(D, name="reduction_loop"):
-        X_val: int32 = X_row[k]
-        for j in allo.grid(D_h, name="col_loop"):
-            for h in allo.grid(H, name="head_loop"):
-                Q_row[h, j] = (0 if k == 0 else Q_row[h, j]) + X_val * W_q[h, j, k]
-
-
-def attention_row_from_hbm[
-    T: (bfloat16, float32, int4, int8),
-    L: int16,
-    H: int16,
-    D_h: int16,
-](
-    Q_row:   "int32[H, D_h]",       # Q for current row, all heads (from compute_q_row)
-    K_hbm:   "int32[H, L, D_h]",    # Full K matrix from HBM
-    V_hbm:   "int32[H, L, D_h]",    # Full V matrix from HBM
-    scale:   "float32",
-    out_row: "int32[H, D_h]"        # Output: attention result for this row, all heads
-):
-    """
-    Compute attention for a single output row, reading K/V from HBM.
-    
-    For each head:
-      attn_scores[j] = Q_row[h] @ K[h, j, :] for j in [0, L)
-      attn_weights = softmax(attn_scores / scale)
-      out_row[h] = attn_weights @ V[h]
-    """
-    for h in allo.grid(H, name="head_loop"):
-        # Compute attention scores: Q_row @ K^T
-        attn_scores: "int32[L]"
-        max_val: int32 = -2147483648
-        
-        for j in allo.grid(L, name="score_col_loop"):
-            acc: int32 = 0
-            for k in allo.reduction(D_h, name="score_reduction"):
-                acc += Q_row[h, k] * K_hbm[h, j, k]
-            attn_scores[j] = acc
-            if acc > max_val:
-                max_val = acc
-        
-        # Softmax with numerical stability
-        sum_exp: float32 = 0.0
-        attn_weights: "float32[L]"
-        
-        for j in allo.grid(L, name="exp_loop"):
-            exp_val: float32 = allo.exp((attn_scores[j] - max_val) / scale)
-            attn_weights[j] = exp_val
-            sum_exp += exp_val
-        
-        for j in allo.grid(L, name="norm_loop"):
-            attn_weights[j] = attn_weights[j] / sum_exp
-        
-        # Weighted sum with V: attn_weights @ V
-        for d in allo.grid(D_h, name="output_col_loop"):
-            acc_out: float32 = 0.0
-            for j in allo.reduction(L, name="output_reduction"):
-                acc_out += attn_weights[j] * V_hbm[h, j, d]
-            out_row[h, d] = acc_out
-
-
-def self_attention_hbm[
-    T: (bfloat16, float32, int4, int8),
-    L: int16,
-    H: int16,
-    D: int16,
-    D_h: int16,
-](
-    X:       "T[L, D]",
-    W_q:     "T[H, D_h, D]",
-    W_k:     "T[H, D_h, D]",
-    W_v:     "T[H, D_h, D]",
-    W_o:     "T[H, D_h, D]",
-    scale:   "float32",
-    K_hbm:   "int32[H, L, D_h]",  # Intermediate storage in HBM
-    V_hbm:   "int32[H, L, D_h]",  # Intermediate storage in HBM
-    out:     "T[L, D]"
-):
-    """
-    Full self-attention with HBM staging for K and V.
+    Fast tiled kernel for K/V projection with HBM streaming.
     
     Architecture:
-    1. Compute K, V for all heads → write to HBM
-    2. For each output row i:
-       a. Compute Q[i] (single row, all heads)
-       b. Read K, V from HBM
-       c. Compute attention for row i
-       d. Apply output projection
-       e. Write output row
-    """
-    # Phase 1: Compute all K and V, store in HBM
-    for i in allo.grid(L, name="kv_row_loop"):
-        for k in allo.reduction(D, name="kv_reduction"):
-            X_val: int32 = X[i, k]
-            for j in allo.grid(D_h, name="kv_col_loop"):
-                for h in allo.grid(H, name="kv_head_loop"):
-                    K_hbm[h, i, j] = (0 if k == 0 else K_hbm[h, i, j]) + X_val * W_k[h, j, k]
-                    V_hbm[h, i, j] = (0 if k == 0 else V_hbm[h, i, j]) + X_val * W_v[h, j, k]
+    - Tile loop processes T_i rows at a time
+    - For each output column j, loads W column for all heads
+    - Reduction loop achieves II=1 with W buffered locally
+    - Results written to HBM after each tile
     
-    # Phase 2: Compute attention row by row
-    for i_out in allo.grid(L, name="attn_row_loop"):
-        # Compute Q for current row
-        Q_row: "int32[H, D_h]"
-        for k in allo.reduction(D, name="q_reduction"):
-            X_val: int32 = X[i_out, k]
-            for j in allo.grid(D_h, name="q_col_loop"):
-                for h in allo.grid(H, name="q_head_loop"):
-                    Q_row[h, j] = (0 if k == 0 else Q_row[h, j]) + X_val * W_q[h, j, k]
+    BRAM usage (T_i=64, H=12, D=768, D_h=64):
+      X_local:   192 KB
+      K_local:   192 KB
+      V_local:   192 KB
+      W_k/v_col:  72 KB
+      Total:    ~650 KB (~3% of U280 BRAM)
+    """
+    # Tile loop - process T_i rows at a time
+    for i_tile in allo.grid(L // T_i, name="tile_loop"):
+        # Local buffer for X tile
+        X_local: "int32[T_i, D]"
         
-        # Compute attention for each head
-        attn_out: "int32[H, D_h]"
-        for h in allo.grid(H, name="attn_head_loop"):
-            # Compute attention scores
-            attn_scores: "int32[L]"
-            max_val: int32 = -2147483648
-            
-            for j in allo.grid(L, name="score_loop"):
-                acc: int32 = 0
-                for d in allo.reduction(D_h, name="score_reduction"):
-                    acc += Q_row[h, d] * K_hbm[h, j, d]
-                attn_scores[j] = acc
-                if acc > max_val:
-                    max_val = acc
-            
-            # Softmax
-            sum_exp: float32 = 0.0
-            attn_weights: "float32[L]"
-            for j in allo.grid(L, name="softmax_exp_loop"):
-                exp_val: float32 = allo.exp((attn_scores[j] - max_val) / scale)
-                attn_weights[j] = exp_val
-                sum_exp += exp_val
-            
-            for j in allo.grid(L, name="softmax_norm_loop"):
-                attn_weights[j] = attn_weights[j] / sum_exp
-            
-            # Weighted sum with V
-            for d in allo.grid(D_h, name="output_loop"):
-                acc_out: float32 = 0.0
-                for j in allo.reduction(L, name="v_reduction"):
-                    acc_out += attn_weights[j] * V_hbm[h, j, d]
-                attn_out[h, d] = acc_out * 32768.0  # Scale back to int range
+        # Local accumulators for K/V
+        K_local: "int32[H, T_i, D_h]"
+        V_local: "int32[H, T_i, D_h]"
         
-        # Output projection: concat heads and multiply by W_o
-        for d_out in allo.grid(D, name="output_proj_outer"):
-            acc_proj: int32 = 0
-            for h in allo.grid(H, name="output_proj_h"):
-                for d_h in allo.reduction(D_h, name="output_proj_inner"):
-                    acc_proj += (attn_out[h, d_h] >> 15) * W_o[h, d_h, d_out]
-            out[i_out, d_out] = acc_proj
+        # Phase 1: Load X tile from HBM to BRAM
+        for ii in allo.grid(T_i, name="load_x_row"):
+            for kk in allo.grid(D, name="load_x_col"):
+                X_local[ii, kk] = X[i_tile * T_i + ii, kk]
+        
+        # Phase 2: Compute K/V for each output column
+        for j in allo.grid(D_h, name="compute_col"):
+            # Load W column for all heads (H * D values)
+            W_k_col: "int32[H, D]"
+            W_v_col: "int32[H, D]"
+            
+            for h in allo.grid(H, name="load_w_head"):
+                for k in allo.grid(D, name="load_w_k"):
+                    W_k_col[h, k] = W_k[h, j, k]
+                    W_v_col[h, k] = W_v[h, j, k]
+            
+            # Compute all rows for this column
+            for i_compute in allo.grid(T_i, name="compute_row"):
+                # Initialize accumulators
+                K_acc: "int32[H]"
+                V_acc: "int32[H]"
+                for h in allo.grid(H, name="init_acc"):
+                    K_acc[h] = 0
+                    V_acc[h] = 0
+                
+                # Reduction loop - achieves II=1 with local W buffers
+                for k1 in allo.reduction(D, name="reduction"):
+                    X_val: int32 = X_local[i_compute, k1]
+                    for h in allo.grid(H, name="parallel_head"):
+                        K_acc[h] = K_acc[h] + X_val * W_k_col[h, k1]
+                        V_acc[h] = V_acc[h] + X_val * W_v_col[h, k1]
+                
+                # Write accumulators to local KV buffers
+                for h in allo.grid(H, name="store_acc"):
+                    K_local[h, i_compute, j] = K_acc[h]
+                    V_local[h, i_compute, j] = V_acc[h]
+        
+        # Phase 3: Write K/V tile to HBM
+        for h in allo.grid(H, name="store_head"):
+            for i_store in allo.grid(T_i, name="store_row"):
+                for j_store in allo.grid(D_h, name="store_col"):
+                    K_out[h, i_tile * T_i + i_store, j_store] = K_local[h, i_store, j_store]
+                    V_out[h, i_tile * T_i + i_store, j_store] = V_local[h, i_store, j_store]
 
 
-# Test/build configuration
+# =============================================================================
+# Build Configuration
+# =============================================================================
 if __name__ == "__main__":
+    # Production dimensions
     L = 2048
     H = 12
     D = 768
     D_h = 64
+    T_i = 64  # Tile size
     
-    # Test compute_kv_to_hbm
-    s = allo.customize(compute_kv_to_hbm, instantiate=[int8, L, H, D, D_h])
+    print("=" * 60)
+    print("Building compute_kv_to_hbm_fast Kernel")
+    print("=" * 60)
+    print(f"Dimensions: L={L}, H={H}, D={D}, D_h={D_h}")
+    print(f"Tile size: T_i={T_i}")
     
-    # HBM mapping for the kernel
+    # Customize kernel
+    print("\nCustomizing kernel...")
+    s = allo.customize(
+        compute_kv_to_hbm_fast,
+        instantiate=[int8, L, H, D, D_h, T_i]
+    )
+    
+    # HBM mapping
     hbm_mapping = {
         "X": 0,
         "W_k": 1,
@@ -216,10 +130,29 @@ if __name__ == "__main__":
         "V_out": 4,
     }
     
-    print("Building compute_kv_to_hbm kernel...")
-    s.build(
-        target="vitis_hls",
-        mode="csyn",
-        project="compute_kv_hbm.prj",
-        configs={"hbm_mapping": hbm_mapping},
-    )()
+    print("\nBuilding for csyn...")
+    try:
+        # s.build(
+        #     target="vitis_hls",
+        #     mode="csyn",
+        #     project="compute_kv_fast_other.prj",
+        #     configs={"hbm_mapping": hbm_mapping},
+        #     wrap_io=False
+        # )()
+        s.unroll(s.get_loops()["tile_loop"]["k"], factor=32)
+        s.unroll(s.get_loops()["tile_loop"]["kk"], factor=32)
+
+        s.build(
+            target="vitis_hls",
+            mode="csyn",
+            project="compute_kv_fast_unroll_no_io.prj",
+            configs={"hbm_mapping": hbm_mapping},
+            wrap_io=False
+        )()
+        
+        print("\n" + "=" * 60)
+        print("✓ SYNTHESIS COMPLETED!")
+        print("  Check compute_kv_fast_unroll.prj/out.prj/solution1/syn/report/")
+        print("=" * 60)
+    except Exception as e:
+        print(f"\n✗ Synthesis failed: {e}")
